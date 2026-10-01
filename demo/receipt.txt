@@ -1,0 +1,7 @@
+FICTIONAL HACKATHON RECEIPT — NOT A REAL PAYMENT
+Amount: INR 25000
+Date: 2026-09-29
+Payment method: UPI
+Transaction reference: DEMO-UTR-250001
+Recipient: demo-suspect@example
+All identifiers are synthetic. Do not submit this file to a real regulator.

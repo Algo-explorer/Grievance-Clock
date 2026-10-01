@@ -1,0 +1,24 @@
+{
+  "version": "2026-10-01",
+  "sources": {
+    "scores": "https://scores.sebi.gov.in/faqs",
+    "cybercrime": "https://cybercrime.gov.in/",
+    "odr": "https://smartodr.in/",
+    "dp": "https://nsdl.com/participant/securities-company-search"
+  },
+  "clocks": {
+    "SCORES_RECEIVED": {"days":21,"type":"scores_atr","label":"Entity ATR due on SCORES","action":"Check SCORES for automatic escalation / status; do not file a duplicate complaint.","regulatory":true},
+    "SCORES_ENTITY_ATR": {"days":15,"type":"review_1","label":"First review request window","action":"If dissatisfied, request first-level review on SCORES.","regulatory":true},
+    "SCORES_REVIEW_1_ATR": {"days":15,"type":"review_2","label":"Second review request window","action":"If dissatisfied, request second-level review on SCORES.","regulatory":true},
+    "ENTITY_SUBMITTED": {"days":7,"type":"follow_up","label":"Your entity follow-up reminder","action":"Check for a reply and prepare an escalation if the grievance is unresolved.","regulatory":false},
+    "NCRP_SUBMITTED": {"days":1,"type":"cyber_follow_up","label":"Your cyber-report follow-up","action":"Check the acknowledgement and follow up with your bank / reporting channel.","regulatory":false},
+    "OFFLINE_SUBMITTED": {"days":7,"type":"offline_follow_up","label":"Your branch follow-up reminder","action":"Follow up using the stamped acknowledgement.","regulatory":false}
+  },
+  "required": {
+    "cyber_fraud":["description","amount","incident_date","transaction_reference","recipient"],
+    "suspicious_content":["description"],
+    "unknown":["description"],
+    "securities":["description","entity_name","incident_date"],
+    "transmission":["description","entity_name","holding_type"]
+  }
+}
