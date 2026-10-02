@@ -390,3 +390,40 @@ def test_private_image_preview_and_pdf_attachment(client,monkeypatch):
     pdf=client.get(f"/api/cases/{c['id']}/documents/complaint.pdf")
     reader=PdfReader(io.BytesIO(pdf.content))
     assert any(len(page.images)>0 for page in reader.pages)
+
+
+def test_evidence_replace_remove_and_reconfirm(client,monkeypatch):
+    from PIL import Image
+    monkeypatch.setattr(main.local_media,'status',lambda:{'local_voice':False,'local_ocr':False})
+    c=demo(client);base=f"/api/cases/{c['id']}"
+    raw=io.BytesIO();Image.new('RGB',(32,32),'green').save(raw,format='PNG')
+    for name in ('one.png','two.png'):
+        r=client.post(base+'/evidence',files={'file':(name,raw.getvalue(),'image/png')});assert r.status_code==200
+        c=r.json()
+    assert len(c['evidence'])==2 and not c['facts_confirmed']
+    first=c['evidence'][0]['id']
+    bad=client.post(base+'/evidence',data={'replace_id':first},files={'file':('broken.png',b'bad','image/png')})
+    assert bad.status_code==422
+    assert client.get(base+'/evidence/'+first).status_code==200
+    c=client.post(base+'/evidence',data={'replace_id':first},files={'file':('new.png',raw.getvalue(),'image/png')}).json()
+    assert len(c['evidence'])==2 and client.get(base+'/evidence/'+first).status_code==404
+    assert not (main.store.root/'evidence'/first).exists()
+    removed=c['evidence'][0]['id']
+    c=client.delete(base+'/evidence/'+removed).json()
+    assert len(c['evidence'])==1 and c['draft'] is None
+    assert client.get(base+'/documents/complaint.pdf').status_code==422
+    c=client.put(base+'/facts',json={'facts':c['facts'],'revision':c['revision']}).json()
+    assert 'new.png' in c['draft'] and 'two.png' not in c['draft']
+    assert client.delete(base).status_code==200
+    assert client.get(base).status_code==404
+    assert not (main.store.root/'evidence'/c['evidence'][0]['id']).exists()
+
+
+def test_resolve_without_response_stops_reminders(client):
+    c=demo(client);base=f"/api/cases/{c['id']}"
+    c=client.post(base+'/resolve').json()
+    assert c['status']=='resolved'
+    revision=c['revision']
+    assert client.post(base+'/resolve').json()['revision']==revision
+    assert client.post(base+'/messages',json={'text':'new information'}).status_code==409
+    assert client.delete(base).status_code==200

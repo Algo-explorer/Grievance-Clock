@@ -7,12 +7,12 @@ test('broker case: review, approved mock filing and clock',async({page,context})
   await page.getByRole('button',{name:'Confirm facts & prepare complaint'}).click();
   await page.getByRole('button',{name:'Review & simulate filing'}).click();
   await expect(page.getByRole('button',{name:'Approve simulated submission'})).toBeDisabled();
-  const href=await page.getByRole('link',{name:'Open the demo form portal'}).getAttribute('href');
+  const href=await page.getByRole('link',{name:'Open the prepared form'}).getAttribute('href');
   const portal=await context.newPage();
   await portal.goto(href!);
   await expect(portal.getByLabel('Prepared complaint')).toHaveValue(/Request for assistance/);
   await expect(portal.getByRole('button',{name:'Submit simulation'})).toBeDisabled();
-  await portal.getByRole('checkbox',{name:'I approve this demo submission'}).check();
+  await portal.getByRole('checkbox',{name:'I approve this simulated submission'}).check();
   await portal.getByRole('button',{name:'Submit simulation'}).click();
   await expect(portal.getByTestId('reference')).toContainText('DEMO-');
 });

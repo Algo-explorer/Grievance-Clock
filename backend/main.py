@@ -13,7 +13,7 @@ from threading import Lock
 from collections import defaultdict, deque
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from PIL import Image
 from pypdf import PdfReader
@@ -198,10 +198,12 @@ def confirm(case_id: str, body: ConfirmFacts, who=Depends(owner)):
     return public(store.save(who,c))
 
 @app.post('/api/cases/{case_id}/evidence')
-def evidence(case_id: str, file: UploadFile=File(...), who=Depends(owner)):
+def evidence(case_id: str, file: UploadFile=File(...), replace_id: str | None=Form(None), who=Depends(owner)):
     limited(who)
     c=store.get(who,case_id); mutable(c)
-    if len(c['evidence'])>=20: raise HTTPException(422,'Maximum 20 evidence files per case.')
+    replaced=next((e for e in c['evidence'] if e['id']==replace_id),None) if replace_id else None
+    if replace_id and not replaced: raise HTTPException(404,'Evidence not found')
+    if len(c['evidence'])>=20 and not replaced: raise HTTPException(422,'Maximum 20 evidence files per case.')
     raw=file.file.read(10*1024*1024+1)
     if not raw or len(raw)>10*1024*1024: raise HTTPException(413,'Choose a non-empty file up to 10 MB.')
     name=Path(file.filename or 'evidence').name[:160]
@@ -239,13 +241,40 @@ def evidence(case_id: str, file: UploadFile=File(...), who=Depends(owner)):
         ev['extraction_status']='extracted_unverified' if source=='openai' else 'local_rules_unverified' if text else 'needs_manual_review'
     ev['extracted_text']=text
     store.write_evidence(ev['id'],raw)
+    if replaced: c['evidence']=[e for e in c['evidence'] if e['id']!=replace_id]
     c['evidence'].append(ev); c['facts_confirmed']=False; c['draft']=None
     if c['status']=='ready_to_submit': c['status']='ready_for_review'
     event(c,'EVIDENCE_ADDED',{'name':name,'sha256':ev['sha256']})
-    try: return public(store.save(who,c))
+    try: result=public(store.save(who,c))
     except Exception:
         (store.root/'evidence'/ev['id']).unlink(missing_ok=True)
         raise
+    if replaced: (store.root/'evidence'/replace_id).unlink(missing_ok=True)
+    return result
+
+@app.delete('/api/cases/{case_id}/evidence/{evidence_id}')
+def remove_evidence(case_id: str,evidence_id: str,who=Depends(owner)):
+    c=store.get(who,case_id); mutable(c)
+    if not any(e['id']==evidence_id for e in c['evidence']): raise HTTPException(404,'Evidence not found')
+    c['evidence']=[e for e in c['evidence'] if e['id']!=evidence_id]
+    c['facts_confirmed']=False; c['draft']=None
+    if c['status']=='ready_to_submit': c['status']='ready_for_review'
+    c.pop('formal_preview',None); c.pop('complaint_preview',None)
+    event(c,'EVIDENCE_REMOVED',{'evidence_id':evidence_id})
+    result=public(store.save(who,c))
+    (store.root/'evidence'/evidence_id).unlink(missing_ok=True)
+    return result
+
+@app.post('/api/cases/{case_id}/resolve')
+def resolve_case(case_id: str,who=Depends(owner)):
+    c=store.get(who,case_id)
+    if c['status']=='resolved': return public(c)
+    c['status']='resolved'
+    for d in c['deadlines']:
+        if d['status']=='open': d['status']='completed'
+    for n in c['notifications']: n['read']=True
+    event(c,'CASE_RESOLVED',{'source':'user'})
+    return public(store.save(who,c))
 
 @app.get('/api/cases/{case_id}/evidence/{evidence_id}')
 def download_evidence(case_id: str,evidence_id: str,preview: bool=False,who=Depends(owner)):
@@ -284,7 +313,7 @@ def fraud_analysis(case_id: str,who=Depends(owner)):
     limited(who)
     c=store.get(who,case_id)
     url=os.getenv('FRAUD_API_URL')
-    if not url: raise HTTPException(503,'Your team’s fraud-model URL is not configured. This case can continue without it.')
+    if not url: raise HTTPException(503,'Additional fraud analysis is currently unavailable. This case can continue without it.')
     try:
         with httpx.Client(timeout=10,follow_redirects=False) as client:
             result=client.post(url,json={'text':c['facts']['description'],'evidence_ids':[e['id'] for e in c['evidence']]},headers={'Authorization':'Bearer '+os.getenv('FRAUD_API_TOKEN','')})

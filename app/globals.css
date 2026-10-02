@@ -8,3 +8,5 @@
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
 
 .evidence-previews{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0}.attachment-preview{margin:0;padding:10px;border:1px solid #dce4de;border-radius:12px;max-width:100%;width:280px;background:#fff}.attachment-preview img{display:block;width:100%;max-height:260px;object-fit:contain;border-radius:6px}.attachment-preview figcaption{font-size:12px;overflow-wrap:anywhere;margin-top:8px}
+
+.case-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0 20px}
