@@ -115,3 +115,7 @@ See [integration contract](docs/INTEGRATION.md), [demo script](docs/DEMO.md), [d
 ## Third-party components
 
 Next.js / React / Lucide for UI; FastAPI / Pydantic for API; OpenAI for opt-in AI; ReportLab / pypdf / HarfBuzz for documents; Cryptography Fernet for storage; Noto fonts under the SIL Open Font License (see `backend/fonts/LICENSE`). No proprietary government assets or logos are copied.
+
+### Review and evidence previews
+
+Hinglish answers accept conversational yes/no phrasing and common spelling variants. This offline parser is still limited; cloud interpretation requires working provider quota. Original messages remain unchanged. The local formal-English draft is a summary of collected facts, not a full translation; review its notice and edit the formal fields before confirming. Screenshot previews appear in chat, the evidence locker, document review and the demo filing form. Image evidence is also embedded as an appendix in downloaded PDFs. Previews use the existing owner-scoped session and are never public image URLs. Existing confirmed drafts are preserved; review and reconfirm an older case to regenerate its wording.

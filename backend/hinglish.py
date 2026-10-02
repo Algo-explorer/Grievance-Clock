@@ -24,14 +24,19 @@ def active(case):
     return case['language']=='hi-Latn' or case.get('chat_style')=='hinglish'
 
 def boolean(text):
-    t=text.strip().lower().rstrip('.!')
-    if re.fullmatch(r'(?:no|no i did not|no i have not|no i haven’t|nahi|nahin|nhi|nahi ji|abhi nahi|नहीं)(?:[, ]+(?:abhi tak nahi|nahi ki|ki nahi|bheje nahi|nahi bheje|kiya nahi|hai))?',t): return False
-    if re.fullmatch(r'(?:yes|yes i did|yes i have|haan|han|ha|hanji|haan ji|ji haan|हाँ|हां)(?:[, ]+(?:maine )?(?:bheje the|bhej diye|ki hai|kar di|ki thi|kiya tha))?',t): return True
+    # Read polarity in conversational replies, not only exact whole-string matches.
+    t=normalize(text).strip()
+    if re.search(r'\b(?:shayad|maybe|not sure|pata nahi|malum nahi)\b',t): return None
+    negative=bool(re.search(r"\b(?:nahi|no|never|not|didn't|haven't)\b|नहीं",t))
+    affirmative=bool(re.search(r'\b(?:h+a+n*|hanji|yes|yep|yeah|bilkul|zaroor|ji)\b|हाँ|हां',t))
+    if negative: return False
+    if affirmative: return True
+    if re.search(r'\b(?:kar di|kar diya|ki hai|ki thi|kiya tha|bhej diye|bheje the)\b',t): return True
     return None
 
 def normalize(text):
     t=text.lower()
-    for pattern,value in [(r'\b(?:nhi|nahin|nai)\b','nahi'),(r'\b(?:hazar|hazaar|hajaar|hajar)\b','thousand'),(r'\b(?:lac|lacs|lakhs)\b','lakh'),(r'\b(?:rupay|rupaye|rupaiye|rupe)\b','rupees')]:
+    for pattern,value in [(r'\b(?:nhi|nahin|nai|nahee|nahii|nahiii)\b','nahi'),(r'\b(?:hazar|hazaar|hajaar|hajar)\b','thousand'),(r'\b(?:lac|lacs|lakhs)\b','lakh'),(r'\b(?:rupay|rupaye|rupaiye|rupe)\b','rupees')]:
         t=re.sub(pattern,value,t)
     numbers={'ek':1,'do':2,'teen':3,'char':4,'chaar':4,'paanch':5,'panch':5,'che':6,'chhe':6,'saat':7,'aath':8,'nau':9,'das':10,'dus':10,'bees':20,'bis':20,'pachis':25,'pachchis':25,'pachees':25,'tees':30,'pachas':50,'pachaas':50,'sau':100,'dedh':1.5,'dhai':2.5}
     for word,number in numbers.items():
@@ -42,7 +47,7 @@ def payment(text):
     t=normalize(text)
     # Negation can precede or follow the verb in Roman Hindi.
     has_money=bool(re.search(r'\b(?:paise|paisa|payment|rupees|thousand|lakh|money|funds)\b|₹|\d',t))
-    transfer=bool(re.search(r'\b(?:bhej\w*|diye|diya|transfer\w*|pay\w*)\b',t))
+    transfer=bool(re.search(r'\b(?:bhej\w*|transfer\w*|pay\w*)\b|\b(?:paise|paisa|rupees)\b.{0,20}\b(?:diye|diya)\b',t))
     if has_money and transfer:
         if re.search(r'\bnahi\b',t): return False
         if re.search(r'\b(?:bheje|bheja|diye|diya|kiya|kiye|paid|transferred)\b',t): return True

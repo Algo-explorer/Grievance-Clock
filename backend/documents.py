@@ -1,4 +1,5 @@
 """Deterministic complaint and print pack, with user-reviewed facts only."""
+from . import formal
 import io
 import os
 from pathlib import Path
@@ -8,7 +9,7 @@ from html import escape
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as PDFImage
 
 FONT_CANDIDATES = [
     *[(family,Path(__file__).with_name('fonts')/(family+'-Regular.ttf')) for family in ['NotoSans','NotoSansDevanagari','NotoSansBengali','NotoSansTamil','NotoSansTelugu']],
@@ -39,7 +40,7 @@ def unicode_markup(text):
     return ''.join(parts).replace('\n','<br/>')
 
 def complaint(case):
-    f=case['facts']
+    f=formal.fields(case)
     lines=[f"Subject: Request for assistance - {f['category'].replace('_',' ')}",f"Case: {case['id']}",
         f"To: {f.get('entity_name') or case['route']['title']}", '', 'I request assistance with the following grievance.',f['description'],'', 'Details supplied by the complainant:']
     for field in ['entity_name','amount','incident_date','payment_method','transaction_reference','recipient']:
@@ -50,7 +51,7 @@ def complaint(case):
     lines += ['', 'I confirm that the information above reflects my account to the best of my knowledge.', 'Name: ____________________    Signature: ____________________    Date: __________', '', 'Prepared by Grievance Clock. This document is not a filing acknowledgement.']
     return '\n'.join(lines)
 
-def pdf(case, offline=False):
+def pdf(case, offline=False, read_evidence=None):
     out=io.BytesIO()
     styles=getSampleStyleSheet()
     styles.add(ParagraphStyle(name='GCBody',fontName='Helvetica',fontSize=10,leading=15,textColor=colors.HexColor('#25332f'),spaceAfter=8,shaping=True))
@@ -64,6 +65,15 @@ def pdf(case, offline=False):
     p(case['id']+' | Prepared for your review | Not proof of submission')
     story.append(Spacer(1,14))
     for line in (case.get('draft') or complaint(case)).split('\n'): p(line)
+    if read_evidence:
+        for ev in case['evidence']:
+            if ev.get('mime','').startswith('image/'):
+                story.append(PageBreak())
+                p('Evidence preview: '+ev['name'],'Heading2')
+                picture=PDFImage(io.BytesIO(read_evidence(ev['id'])))
+                picture._restrictSize(500,620)
+                story.append(picture)
+                p('SHA-256: '+ev['sha256'])
     if offline:
         story.append(PageBreak())
         p('Your branch visit checklist','Heading1')

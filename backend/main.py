@@ -22,7 +22,7 @@ from .storage import Store
 from .engine import now, event, refresh, add_clock, reminders, next_escalation, RULES
 from . import intelligence as ai
 from . import documents
-from . import provider, local_media, conversation, hinglish
+from . import provider, local_media, conversation, hinglish, formal
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / '.env.local')
@@ -86,6 +86,8 @@ def mutable(case):
 def public(case):
     refresh(case)
     case['escalation']=next_escalation(case)
+    case['formal_preview']=formal.preview(case)
+    case['complaint_preview']=documents.complaint(case)
     return case
 
 def interpret(c,text,image=None,evidence=False):
@@ -246,11 +248,11 @@ def evidence(case_id: str, file: UploadFile=File(...), who=Depends(owner)):
         raise
 
 @app.get('/api/cases/{case_id}/evidence/{evidence_id}')
-def download_evidence(case_id: str,evidence_id: str,who=Depends(owner)):
+def download_evidence(case_id: str,evidence_id: str,preview: bool=False,who=Depends(owner)):
     c=store.get(who,case_id)
     ev=next((e for e in c['evidence'] if e['id']==evidence_id),None)
     if not ev: raise HTTPException(404,'Evidence not found')
-    return Response(store.read_evidence(ev['id']),media_type=ev['mime'],headers={'Content-Disposition':f'attachment; filename="evidence-{ev["id"]}{Path(ev["name"]).suffix}"'})
+    return Response(store.read_evidence(ev['id']),media_type=ev['mime'],headers={'Content-Disposition':f'{"inline" if preview else "attachment"}; filename="evidence-{ev["id"]}{Path(ev["name"]).suffix}"'})
 
 @app.post('/api/cases/{case_id}/transcribe')
 def transcribe(case_id: str,file: UploadFile=File(...),who=Depends(owner)):
@@ -395,11 +397,11 @@ def document(case_id: str,kind: str,who=Depends(owner)):
     c=store.get(who,case_id)
     if not c['facts_confirmed']: raise HTTPException(422,'Confirm the facts before downloading your documents.')
     if kind in ('complaint.pdf','offline.pdf'):
-        return Response(documents.pdf(c,kind=='offline.pdf'),media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename="{c["id"]}-{kind}"'})
+        return Response(documents.pdf(c,kind=='offline.pdf',read_evidence=store.read_evidence),media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename="{c["id"]}-{kind}"'})
     if kind=='dossier.zip':
         output=io.BytesIO()
         with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as z:
-            z.writestr('complaint.pdf',documents.pdf(c))
+            z.writestr('complaint.pdf',documents.pdf(c,read_evidence=store.read_evidence))
             z.writestr('case-record.json',json.dumps(c,ensure_ascii=False,indent=2))
             for e in c['evidence']:
                 z.writestr('originals/'+e['id']+Path(e['name']).suffix,store.read_evidence(e['id']))

@@ -343,3 +343,50 @@ def test_hinglish_skips_and_preserves_identifiers(client):
     c=chat(client,c,'mujhe pata nhi')
     assert c['facts']['entity_name'] is None
     assert c['intake']['pending']=='payment_method'
+
+
+@pytest.mark.parametrize('answer',['ha','haan','haaan','haan ji','ji haan','ha maine complaint ki hai','bilkul, kar di hai'])
+def test_flexible_hinglish_answers_advance(client,answer):
+    c=client.post('/api/cases',json={'language':'hi-Latn'}).json()
+    c=chat(client,c,'Mera broker withdrawal nahi de raha. Rs 5000 yesterday.')
+    c=chat(client,c,'Example Securities')
+    assert c['intake']['pending']=='entity_contacted'
+    c=chat(client,c,answer)
+    assert c['facts']['entity_contacted'] is True
+    assert c['intake']['pending']=='entity_complaint_reference'
+
+
+def test_formal_complaint_preserves_original_chat(client):
+    c=client.post('/api/cases',json={'language':'hi-Latn'}).json()
+    original='Mere broker ne withdrawal rok diya hai. Rs 5000 yesterday.'
+    for answer in (original,'Example Securities','nahi ji abhi tak nahi','Mujhe mere paise wapas chahiye','saboot nahi hai'):
+        c=chat(client,c,answer)
+    assert c['intake']['stage']=='review'
+    assert 'delayed withdrawal' in c['complaint_preview']
+    assert 'return of the funds' in c['complaint_preview']
+    assert 'Mujhe' not in c['complaint_preview']
+    assert c['messages'][0]['text']==original
+    c=chat(client,c,'sab sahi hai')
+    assert 'return of the funds' in c['draft']
+
+
+def test_private_image_preview_and_pdf_attachment(client,monkeypatch):
+    from PIL import Image
+    monkeypatch.setattr(main.local_media,'status',lambda:{'local_voice':False,'local_ocr':False})
+    c=demo(client)
+    raw=io.BytesIO();Image.new('RGB',(160,80),'green').save(raw,format='PNG')
+    r=client.post(f"/api/cases/{c['id']}/evidence",files={'file':('screen.png',raw.getvalue(),'image/png')})
+    assert r.status_code==200
+    c=r.json();ev=c['evidence'][0]
+    path=f"/api/cases/{c['id']}/evidence/{ev['id']}?preview=true"
+    r=client.get(path)
+    assert r.content==raw.getvalue()
+    assert r.headers['content-disposition'].startswith('inline;')
+    assert 'no-store' in r.headers['cache-control']
+    with TestClient(main.app) as stranger:
+        stranger.post('/api/session')
+        assert stranger.get(path).status_code==404
+    c=client.put(f"/api/cases/{c['id']}/facts",json={'facts':c['facts'],'revision':c['revision']}).json()
+    pdf=client.get(f"/api/cases/{c['id']}/documents/complaint.pdf")
+    reader=PdfReader(io.BytesIO(pdf.content))
+    assert any(len(page.images)>0 for page in reader.pages)
