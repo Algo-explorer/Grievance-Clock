@@ -15,7 +15,7 @@ Return the full accumulated facts, retaining prior facts unless the user explici
 Do not invent amounts, dates, transaction references, entities, addresses, laws or filing status.
 Use null for unknowns. Normalize the description into concise English while preserving the allegation
 as the user's account, not a proven finding. Reply warmly in the user's chosen language, in 2-3 short
-sentences. Ask one useful factual question if needed. Do not claim you filed anything.
+sentences. Interpret short replies using intake_progress.pending and the recent conversation. A yes/no answer refers to the last question. Skipped fields remain unknown. Ask one useful factual question if needed. Do not claim you filed anything.
 Do not set deadlines, give stock tips, recommend buy/sell/hold, predict prices, or suggest products.
 If the request is investment advice, set out_of_scope true and redirect to grievances.
 Cyber fraud involving transferred funds requires immediate 1930 and bank reporting: say this before
@@ -41,7 +41,7 @@ def fallback(case, text):
 def extract(case, text, image=None):
     if mode(case) != 'live':
         return fallback(case,text)
-    context = json.dumps({'today':date.today().isoformat(),'language':case['language'],'previous_facts':case['facts'],'user_text':text},ensure_ascii=False)
+    context = json.dumps({'today':date.today().isoformat(),'language':case['language'],'previous_facts':case['facts'],'intake_progress':case.get('intake',{}),'recent_messages':case.get('messages',[])[-6:],'user_text':text},ensure_ascii=False)
     content=[{'type':'input_text','text':context}]
     if image:
         content.append({'type':'input_image','image_url':f'data:{image[0]};base64,'+base64.b64encode(image[1]).decode()})

@@ -22,7 +22,7 @@ from .storage import Store
 from .engine import now, event, refresh, add_clock, reminders, next_escalation, RULES
 from . import intelligence as ai
 from . import documents
-from . import provider, local_media
+from . import provider, local_media, conversation
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / '.env.local')
@@ -150,7 +150,27 @@ def message(case_id: str, body: MessageIn, who=Depends(owner)):
     limited(who)
     c=store.get(who,case_id); mutable(c)
     if ai.sensitive(body.text): raise HTTPException(422,'Remove OTPs, PINs or passwords before sending. We do not need them.')
+    command=body.text.strip().lower().rstrip('.!')
+    if command in ('confirm details','confirm my details','जानकारी सही है') and c.get('intake',{}).get('stage')=='review':
+        refresh(c)
+        if c['missing_fields'] or c['facts']['category']=='unknown':
+            raise HTTPException(422,'These required details are still missing: '+', '.join(c['missing_fields']))
+        c['facts_confirmed']=True
+        for ev in c['evidence']: ev['verified']=True
+        c['draft']=documents.complaint(c)
+        c['intake']['stage']='complete'; c['intake']['pending']=None
+        c['messages'].extend([
+            {'id':uuid.uuid4().hex,'role':'user','text':body.text,'at':now()},
+            {'id':uuid.uuid4().hex,'role':'assistant','text':'Your details are confirmed. I’ve prepared your complaint and filled the demo form. Open Documents to download your complaint, or Review & simulate filing to inspect the filled form. This conversation is complete unless you want to change a detail. No external complaint has been submitted.','provider':'workflow','at':now()}])
+        event(c,'FACTS_CONFIRMED',{'source':'chat'})
+        return public(store.save(who,c))
+    if c['facts_confirmed'] and command in ('thanks','thank you','ok','okay','done','confirm details'):
+        c['messages'].extend([
+            {'id':uuid.uuid4().hex,'role':'user','text':body.text,'at':now()},
+            {'id':uuid.uuid4().hex,'role':'assistant','text':'Your complaint is ready in Documents. You can return whenever you have an update.','provider':'workflow','at':now()}])
+        return public(store.save(who,c))
     extraction, source=interpret(c,body.text)
+    extraction=conversation.guide(c,extraction,body.text)
     c['messages'].append({'id':uuid.uuid4().hex,'role':'user','text':body.text,'normalized_text':extraction.normalized_text,'at':now()})
     c['messages'].append({'id':uuid.uuid4().hex,'role':'assistant','text':extraction.reply,'provider':source,'at':now()})
     if not extraction.out_of_scope:

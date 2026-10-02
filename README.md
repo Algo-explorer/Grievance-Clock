@@ -26,7 +26,7 @@ Open **http://127.0.0.1:3000**. API documentation: **http://127.0.0.1:8000/docs*
 
 On Windows, `scripts/start.ps1` starts both servers in hidden windows, stores their process IDs in ignored `tmp/`, and prints their addresses. `scripts/stop.ps1` stops only those recorded processes after checking their command lines.
 
-Text sends with Enter or the Send button; Shift+Enter adds a newline. Cloud failures trigger a labeled local rule-based intake response, preserving the message and case. This fallback is not an LLM and supports English/Hindi prompts; review extracted facts.
+Text sends with Enter or the Send button; Shift+Enter adds a newline. The assistant tracks its current question, fills the case fields from answers, asks relevant follow-ups, and offers a review summary. Say `skip` for an unknown detail; unresolved required facts still block confirmation. Reply `confirm details` (or use the chat confirmation button) to generate the complaint and prefill the demo filing form. No external submission occurs. Explicit corrections such as `organisation: Example Securities` reopen review. Cloud failures trigger a labeled local rule-based intake response, preserving the message and case. This fallback is not an LLM and supports English/Hindi prompts; review extracted facts.
 
 ## What works
 

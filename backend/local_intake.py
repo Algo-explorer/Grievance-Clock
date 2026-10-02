@@ -21,21 +21,35 @@ def pending(facts):
 
 def understand(case, text, evidence=False):
     f=Facts.model_validate(case['facts']).model_dump(mode='json')
-    previous=pending(f)
+    previous=None if evidence else (case.get('intake',{}).get('pending') or pending(f))
     lower=text.lower().strip()
     advice=bool(re.search(r'(?:should i|shall i|recommend|tip|predict).{0,50}(?:buy|sell|stock|share|price)|\bstock tips?\b|khar[ie]ed',lower))
-    if not advice:
+    from .conversation import skipped
+    skip=skipped(text)
+    answer=re.sub(r'[.!]+$', '', lower).strip()
+    yes=answer in ('yes','yes i did','yes i have','हाँ','हां')
+    no=answer in ('no','no i did not','no i haven’t','no i have not','नहीं')
+    if not advice and not skip:
+        if previous=='money_transferred' and (yes or no): f['money_transferred']=yes
+        if previous=='entity_contacted' and (yes or no): f['entity_contacted']=yes
+        if previous=='desired_resolution' and len(text.strip())>=3: f['desired_resolution']=text.strip()[:1000]
+        if previous=='payment_method' and len(text.strip())<=80: f['payment_method']=text.strip()
+        if previous=='entity_complaint_reference' and len(text.strip())<=100: f['entity_complaint_reference']=text.strip()
+        resolution=re.search(r'(?i)(?:desired resolution|requested resolution|resolution)\s*(?:is|:|=)\s*(.+)',text)
+        if resolution: f['desired_resolution']=resolution.group(1)[:1000]
         combined=(f['description']+' '+text).lower()
-        paid=bool(re.search(r'\b(?:paid|sent|transferred|bhej|diye|dedie|diya)\b|भेज|दिए|दिया|ट्रांसफर',combined))
+        paid=bool(re.search(r'\bpaid\b|\b(?:sent|transferred)\s+(?:(?:the|some|my)\s+)?(?:money|funds|payment|rs\b|inr\b|₹|[0-9])|पैसे भेजे|भुगतान किया',lower))
         not_paid=bool(re.search(r'(?:not|never|haven.t|didn.t|nahi).{0,12}(?:paid|pay|sent|send|transfer|bhej)|पैसे नहीं भेजे|भुगतान नहीं',lower))
-        if any(x in combined for x in ['scam','fraud','telegram','ठगी','धोखा','फ्रॉड']):
-            f['category']='cyber_fraud' if (paid or f.get('money_transferred')) and not not_paid else 'suspicious_content'
+        if any(x in combined for x in ['scam','fraud','telegram','suspicious','ठगी','धोखा','फ्रॉड']):
             if not_paid: f['money_transferred']=False
             elif paid: f['money_transferred']=True
+            f['category']='cyber_fraud' if f.get('money_transferred') else 'suspicious_content'
         elif any(x in combined for x in ['death','passed away','transmission','मृत्यु','निधन']): f['category']='transmission'
         elif any(x in combined for x in ['withdraw','payout','निकासी','पैसे निकाल']): f['category']='payout'
         elif 'kyc' in combined or 'signature' in combined: f['category']='kyc'
         elif any(x in combined for x in ['unauthorized','without permission','बिना अनुमति']): f['category']='unauthorized_trade'
+        elif 'mutual fund' in combined: f['category']='mutual_fund'
+        elif 'listed company' in combined or 'dividend' in combined: f['category']='listed_company'
         elif 'broker' in combined or 'ब्रोकर' in combined: f['category']='broker'
         elif 'demat' in combined or 'डीमैट' in combined: f['category']='demat'
         amount=re.search(r'(?:₹|rs\.?\s*|inr\s*|(?:paid|sent|transferred)\s+)([\d,]+(?:\.\d+)?)\s*(thousand|lakh|lakhs|k\b|हज़ार|हजार|लाख)?',lower)
@@ -51,6 +65,14 @@ def understand(case, text, evidence=False):
             except ValueError: pass
         elif re.search(r'\btoday\b|\baaj\b|आज',lower): f['incident_date']=datetime.now(IST).date().isoformat()
         elif re.search(r'\byesterday\b|\bkal\b|कल',lower): f['incident_date']=(datetime.now(IST).date()-timedelta(days=1)).isoformat()
+        if not dt and previous=='incident_date' and not re.search(r'today|yesterday|aaj|kal|आज|कल',lower):
+            date_text=re.sub(r'(\d+)(st|nd|rd|th)\b',r'\1',text.strip(),flags=re.I)
+            for fmt in ('%d/%m/%Y','%d-%m-%Y','%d %B %Y','%d %b %Y','%B %d, %Y','%B %d %Y','%d %B','%d %b'):
+                try:
+                    parsed=datetime.strptime(date_text,fmt)
+                    if '%Y' not in fmt: parsed=parsed.replace(year=datetime.now(IST).year)
+                    f['incident_date']=parsed.date().isoformat();break
+                except ValueError: pass
         ref=re.search(r'(?i)(?:UTR|transaction\s*(?:id|reference)|reference\s*(?:number|id)?)\s*(?:is|hai|:|#)?\s*([a-z0-9-]{6,60})',text)
         if ref: f['transaction_reference']=ref.group(1)
         elif previous=='transaction_reference' and re.fullmatch(r'[A-Za-z0-9-]{6,60}',text.strip()): f['transaction_reference']=text.strip()
@@ -64,8 +86,15 @@ def understand(case, text, evidence=False):
         if re.search(r'\b(?:physical|paper certificate)\b|कागज़',lower): f['holding_type']='physical'
         elif 'demat' in lower or 'डीमैट' in lower: f['holding_type']='demat'
         if re.search(r'(?:already|पहले).{0,30}(?:complain|contact|email|शिकायत)',lower): f['entity_contacted']=True
-        if not evidence: f['description']=(f['description']+'\n'+text).strip()[:12000]
-        elif not f['description']: f['description']='Uploaded evidence:\n'+text[:11000]
+        # Explicit field corrections also work after the conversational review.
+        aliases={'organisation':'entity_name','organization':'entity_name','entity name':'entity_name','broker':'entity_name','company':'entity_name','recipient':'recipient','payment method':'payment_method','transaction reference':'transaction_reference','utr':'transaction_reference','requested resolution':'desired_resolution','description':'description','earlier reference':'entity_complaint_reference'}
+        correction=re.fullmatch(r'([^:\n]+):\s*(.+)',text.strip())
+        if correction and correction.group(1).strip().lower() in aliases:
+            key=aliases[correction.group(1).strip().lower()]
+            limit={'entity_name':200,'recipient':200,'payment_method':80,'transaction_reference':100,'desired_resolution':1000,'description':12000,'entity_complaint_reference':100}[key]
+            f[key]=correction.group(2).strip()[:limit]
+        if not evidence and (not f['description'] or previous in ('description','category')): f['description']=(f['description']+'\n'+text).strip()[:12000]
+        elif evidence and not f['description']: f['description']='Uploaded evidence:\n'+text[:11000]
     hi=case['language']=='hi'
     if advice:
         reply='मैं निवेश की सलाह नहीं देता। शिकायत या संदिग्ध संदेश में मदद कर सकता हूँ।' if hi else 'I can help with a grievance or suspicious message, but cannot give investment recommendations.'

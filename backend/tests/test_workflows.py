@@ -217,3 +217,74 @@ def test_response_survives_ai_outage(client,monkeypatch):
     r=client.post(base+'/responses',json={'text':'Your payout remains pending while we investigate.','source':'entity','received_at':datetime.now(timezone.utc).isoformat()})
     assert r.status_code==200,r.text
     assert r.json()['responses'][-1]['provider']=='local_summary'
+
+
+def chat(client, case, text):
+    r=client.post(f"/api/cases/{case['id']}/messages",json={'text':text})
+    assert r.status_code==200,r.text
+    return r.json()
+
+
+def test_chat_fills_complaint_and_finishes(client):
+    c=client.post('/api/cases',json={}).json()
+    steps=[('My broker has delayed my withdrawal.','entity_name'),
+           ('Example Securities','incident_date'),('1 October 2026','amount'),
+           ('5000','entity_contacted'),('no','desired_resolution'),
+           ('Release my withdrawal','evidence'),('no evidence',None)]
+    for answer,expected in steps:
+        c=chat(client,c,answer)
+        assert c['intake']['pending']==expected,c['messages'][-1]['text']
+    assert c['facts']['amount']==5000
+    assert c['facts']['incident_date']=='2026-10-01'
+    assert c['facts']['desired_resolution']=='Release my withdrawal'
+    assert c['facts']['description']=='My broker has delayed my withdrawal.'
+    assert c['intake']['stage']=='review'
+    c=chat(client,c,'confirm details')
+    assert c['facts_confirmed'] and c['intake']['stage']=='complete'
+    assert 'Release my withdrawal' in c['draft']
+    assert 'Example Securities' in c['draft']
+    saved_draft=c['draft']
+    c=chat(client,c,'thanks')
+    assert c['facts_confirmed'] and c['draft']==saved_draft
+    c=chat(client,c,'organisation: Corrected Securities')
+    assert c['facts']['entity_name']=='Corrected Securities'
+    assert not c['facts_confirmed'] and c['draft'] is None
+
+
+def test_suspicious_chat_asks_payment_and_skips_without_inventing(client):
+    c=client.post('/api/cases',json={}).json()
+    c=chat(client,c,'Someone sent me a suspicious investment message.')
+    assert c['intake']['pending']=='money_transferred'
+    c=chat(client,c,'no')
+    assert c['facts']['money_transferred'] is False
+    assert c['intake']['pending']=='entity_name'
+    c=chat(client,c,"I don't know")
+    assert c['facts']['entity_name'] is None
+    assert c['intake']['pending']=='incident_date'
+    c=chat(client,c,'yesterday')
+    c=chat(client,c,'skip')  # sender / recipient
+    c=chat(client,c,'Investigate this message')
+    c=chat(client,c,'no')  # no evidence
+    assert c['intake']['stage']=='review'
+    assert c['facts']['amount'] is None
+    assert 'confirm details' in c['messages'][-1]['text']
+
+
+def test_uninterpretable_answer_does_not_loop_or_confirm_missing_facts(client):
+    c=client.post('/api/cases',json={}).json()
+    c=chat(client,c,'My broker has delayed my withdrawal.')
+    c=chat(client,c,'Example Broker')
+    c=chat(client,c,'sometime')
+    assert c['intake']['pending']=='incident_date'
+    c=chat(client,c,'still unsure')
+    assert c['intake']['pending']=='amount'
+    assert c['facts']['incident_date'] is None
+    for answer in ('skip','no','Release the payment','no evidence'):
+        c=chat(client,c,answer)
+    assert c['intake']['stage']=='review'
+    assert 'Still required' in c['messages'][-1]['text']
+    r=client.post(f"/api/cases/{c['id']}/messages",json={'text':'confirm details'})
+    assert r.status_code==422
+    c=chat(client,c,'incident date: 2026-10-01')
+    c=chat(client,c,'confirm details')
+    assert c['facts_confirmed']
