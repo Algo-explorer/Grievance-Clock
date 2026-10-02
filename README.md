@@ -28,6 +28,8 @@ On Windows, `scripts/start.ps1` starts both servers in hidden windows, stores th
 
 Text sends with Enter or the Send button; Shift+Enter adds a newline. The assistant tracks its current question, fills the case fields from answers, asks relevant follow-ups, and offers a review summary. Say `skip` for an unknown detail; unresolved required facts still block confirmation. Reply `confirm details` (or use the chat confirmation button) to generate the complaint and prefill the demo filing form. No external submission occurs. Explicit corrections such as `organisation: Example Securities` reopen review. Cloud failures trigger a labeled local rule-based intake response, preserving the message and case. This fallback is not an LLM and supports English/Hindi prompts; review extracted facts.
 
+Hinglish (Hindi written in English letters) is detected automatically, or select **Hinglish** in the language menu. Local intake handles common Roman-Hindi answers, negation and amounts such as `pachis hazaar`. It preserves original messages and identifiers; ambiguous dates need clarification. This is targeted language understanding, not unrestricted transliteration. For voice, Hinglish selection uses Hindi recognition; the transcript may use Devanagari and remains editable before sending.
+
 ## What works
 
 - Responsive Next.js workspace with case dashboard, conversational intake, evidence locker, documents and timeline.

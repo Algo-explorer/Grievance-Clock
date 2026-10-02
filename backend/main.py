@@ -22,7 +22,7 @@ from .storage import Store
 from .engine import now, event, refresh, add_clock, reminders, next_escalation, RULES
 from . import intelligence as ai
 from . import documents
-from . import provider, local_media, conversation
+from . import provider, local_media, conversation, hinglish
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / '.env.local')
@@ -142,6 +142,7 @@ def delete_case(case_id: str, who=Depends(owner)):
 def preferences(case_id: str, body: Preferences, who=Depends(owner)):
     c=store.get(who,case_id)
     c.update(body.model_dump())
+    c.pop('chat_style',None)
     event(c,'PREFERENCES_UPDATED')
     return public(store.save(who,c))
 
@@ -150,8 +151,9 @@ def message(case_id: str, body: MessageIn, who=Depends(owner)):
     limited(who)
     c=store.get(who,case_id); mutable(c)
     if ai.sensitive(body.text): raise HTTPException(422,'Remove OTPs, PINs or passwords before sending. We do not need them.')
+    if hinglish.detect(body.text): c['chat_style']='hinglish'
     command=body.text.strip().lower().rstrip('.!')
-    if command in ('confirm details','confirm my details','जानकारी सही है') and c.get('intake',{}).get('stage')=='review':
+    if command in ('confirm details','confirm my details','sab sahi hai','haan sab sahi hai','details sahi hain','जानकारी सही है') and c.get('intake',{}).get('stage')=='review':
         refresh(c)
         if c['missing_fields'] or c['facts']['category']=='unknown':
             raise HTTPException(422,'These required details are still missing: '+', '.join(c['missing_fields']))
@@ -161,13 +163,13 @@ def message(case_id: str, body: MessageIn, who=Depends(owner)):
         c['intake']['stage']='complete'; c['intake']['pending']=None
         c['messages'].extend([
             {'id':uuid.uuid4().hex,'role':'user','text':body.text,'at':now()},
-            {'id':uuid.uuid4().hex,'role':'assistant','text':'Your details are confirmed. I’ve prepared your complaint and filled the demo form. Open Documents to download your complaint, or Review & simulate filing to inspect the filled form. This conversation is complete unless you want to change a detail. No external complaint has been submitted.','provider':'workflow','at':now()}])
+            {'id':uuid.uuid4().hex,'role':'assistant','text':('Details confirm ho gayi hain. Complaint aur demo form taiyar hain. Documents se download karein ya Review & simulate filing mein check karein. Koi complaint bahar submit nahi hui hai.' if hinglish.active(c) else 'Your details are confirmed. I’ve prepared your complaint and filled the demo form. Open Documents to download your complaint, or Review & simulate filing to inspect the filled form. This conversation is complete unless you want to change a detail. No external complaint has been submitted.'),'provider':'workflow','at':now()}])
         event(c,'FACTS_CONFIRMED',{'source':'chat'})
         return public(store.save(who,c))
-    if c['facts_confirmed'] and command in ('thanks','thank you','ok','okay','done','confirm details'):
+    if c['facts_confirmed'] and command in ('thanks','thank you','ok','okay','done','confirm details','shukriya','dhanyawad','theek hai'):
         c['messages'].extend([
             {'id':uuid.uuid4().hex,'role':'user','text':body.text,'at':now()},
-            {'id':uuid.uuid4().hex,'role':'assistant','text':'Your complaint is ready in Documents. You can return whenever you have an update.','provider':'workflow','at':now()}])
+            {'id':uuid.uuid4().hex,'role':'assistant','text':('Aapki complaint Documents mein taiyar hai. Nayi jankari ho toh yahan bata dein.' if hinglish.active(c) else 'Your complaint is ready in Documents. You can return whenever you have an update.'),'provider':'workflow','at':now()}])
         return public(store.save(who,c))
     extraction, source=interpret(c,body.text)
     extraction=conversation.guide(c,extraction,body.text)
@@ -261,14 +263,14 @@ def transcribe(case_id: str,file: UploadFile=File(...),who=Depends(owner)):
     if suffix not in ('.webm','.wav','.mp3','.mp4','.m4a','.ogg','.flac'):
         raise HTTPException(422,'Unsupported audio format. Use WebM, WAV, MP3, MP4, M4A, OGG or FLAC.')
     if local_media.status()['local_voice']:
-        try: text=local_media.transcribe(raw,c['language'])
+        try: text=local_media.transcribe(raw,'hi' if c['language']=='hi-Latn' else c['language'])
         except ValueError as exc: raise HTTPException(422,str(exc))
         except Exception: raise HTTPException(422,'Could not decode or transcribe this recording. Try again or upload a WAV/MP3 recording.')
         return {'text':text,'provider':'local_whisper','notice':'Transcribed locally. Review before sending. Audio was not stored.'}
     if ai.mode(c)!='live': raise HTTPException(503,'Local voice model is not installed. Run the local voice setup, or enable cloud AI sharing.')
     issue=provider.problem()
     if issue: raise HTTPException(503,issue['message']+' Voice model setup is needed for offline transcription.')
-    try: text=ai.transcribe(raw,'voice'+suffix,c['language'])
+    try: text=ai.transcribe(raw,'voice'+suffix,'hi' if c['language']=='hi-Latn' else c['language'])
     except Exception as exc:
         issue=provider.failed(exc)
         raise HTTPException(503,issue['message']+' Install local voice to transcribe without cloud access.')

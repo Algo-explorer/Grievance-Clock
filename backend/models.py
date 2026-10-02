@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, ConfigDict
 
 Category = Literal['unknown', 'cyber_fraud', 'suspicious_content', 'broker', 'demat', 'unauthorized_trade', 'payout', 'kyc', 'transmission', 'mutual_fund', 'listed_company']
-Language = Literal['en', 'hi', 'bn', 'ta', 'te', 'mr']
+Language = Literal['en', 'hi', 'hi-Latn', 'bn', 'ta', 'te', 'mr']
 
 class Facts(BaseModel):
     model_config = ConfigDict(extra='forbid')

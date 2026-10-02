@@ -288,3 +288,58 @@ def test_uninterpretable_answer_does_not_loop_or_confirm_missing_facts(client):
     c=chat(client,c,'incident date: 2026-10-01')
     c=chat(client,c,'confirm details')
     assert c['facts_confirmed']
+
+
+def test_hinglish_payout_chat_and_confirmation(client):
+    c=client.post('/api/cases',json={}).json()
+    c=chat(client,c,'Mere broker ke paas pachis hazaar rupaye atak gaye hain, withdrawal nahi mil raha')
+    assert c['facts']['amount']==25000
+    assert c['facts']['category']=='payout'
+    assert c['chat_style']=='hinglish'
+    assert 'naam kya hai' in c['messages'][-1]['text']
+    c=chat(client,c,'broker ka naam Example Securities hai')
+    assert c['facts']['entity_name']=='Example Securities'
+    c=chat(client,c,'kal')
+    assert c['facts']['incident_date'] is None
+    assert c['intake']['pending']=='incident_date'
+    c=chat(client,c,'beeta hua kal')
+    assert c['facts']['incident_date']
+    c=chat(client,c,'nahi')
+    assert c['intake']['pending']=='desired_resolution'
+    c=chat(client,c,'Mujhe mere paise wapas chahiye')
+    c=chat(client,c,'saboot nahi hai')
+    assert c['intake']['stage']=='review'
+    c=chat(client,c,'sab sahi hai')
+    assert c['facts_confirmed']
+    assert 'taiyar hain' in c['messages'][-1]['text']
+
+
+@pytest.mark.parametrize('statement,paid',[
+ ('Telegram par dhokha hua, maine 25 hazaar rupaye bhej diye',True),
+ ('Telegram par dhokha hua, maine paise nahi bheje',False),
+ ('Telegram par dhokha hua, paise bheje nahi',False),
+ ('Telegram par ek message bheja tha',None),
+])
+def test_hinglish_payment_negation(client,statement,paid):
+    c=client.post('/api/cases',json={'language':'hi-Latn'}).json()
+    c=chat(client,c,statement)
+    assert c['facts']['money_transferred'] is paid
+    assert c['route']['urgent'] is (paid is True)
+    if paid: assert c['facts']['amount']==25000
+
+
+def test_hinglish_skips_and_preserves_identifiers(client):
+    c=client.post('/api/cases',json={'language':'hi-Latn'}).json()
+    c=chat(client,c,'Telegram par dhokha hua')
+    c=chat(client,c,'haan')
+    assert c['intake']['pending']=='amount'
+    c=chat(client,c,'dhai lakh')
+    assert c['facts']['amount']==250000
+    c=chat(client,c,'aaj')
+    c=chat(client,c,'ABCD123XYZ')
+    assert c['facts']['transaction_reference']=='ABCD123XYZ'
+    c=chat(client,c,'Test.Name@Bank')
+    assert c['facts']['recipient']=='Test.Name@Bank'
+    c=chat(client,c,'mujhe pata nhi')
+    assert c['facts']['entity_name'] is None
+    assert c['intake']['pending']=='payment_method'
