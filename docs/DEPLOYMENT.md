@@ -18,6 +18,6 @@ Browser sessions are not a substitute for production identity. Review `SECURITY.
 
 ## Health and recovery
 
-`GET /api/health` reports configuration presence, not AI quota availability. Run the synthetic smoke test to verify live provider access. API errors keep unsaved messages in the composer. The local intake fallback is explicitly selected through preferences and does not silently claim AI success.
+`GET /api/health` reports configuration, local voice/OCR availability and the latest provider failure during its cooldown. Configuration does not prove working quota. Cloud failures automatically save messages with a labeled local intake reply. Transport errors retain unsent composer text. `npm run dev` starts the project backend and frontend together; stop an outdated backend occupying port 8000 before launching. Install the local voice model with `python -m scripts.setup_local_voice` in the backend environment; model files stay in ignored data storage.
 
 Back up the encrypted database/files and the encryption key separately. Test restores. A missing/changed key makes existing records unreadable.

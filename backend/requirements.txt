@@ -11,3 +11,7 @@ pypdf>=5,<7
 Pillow>=11,<13
 pytest>=8,<10
 uharfbuzz>=0.45,<1
+faster-whisper>=1.2,<2
+av>=11,<16
+rapidocr-onnxruntime>=1.4,<2
+pypdfium2>=5,<6

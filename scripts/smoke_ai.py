@@ -16,6 +16,14 @@ except Exception as exc:
     code=getattr(exc,'status_code',None)
     if code: print('HTTP status: '+str(code))
     error_code=getattr(exc,'code',None)
+    body=getattr(exc,'body',{})
+    if isinstance(body,dict):
+        nested=body.get('error',body)
+        if isinstance(nested,dict):
+            error_code=error_code or nested.get('code') or nested.get('type')
+            message=str(nested.get('message','')).lower()
+            if any(term in message for term in ('quota','credits','balance','billing')):
+                print('Provider reports a billing/quota restriction.')
     if error_code in ('insufficient_quota','rate_limit_exceeded','billing_hard_limit_reached'):
         print('Provider error code: '+error_code)
     raise SystemExit(1)

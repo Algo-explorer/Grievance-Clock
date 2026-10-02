@@ -13,6 +13,7 @@ def client(tmp_path,monkeypatch):
     monkeypatch.setenv('AI_MODE','demo')
     monkeypatch.setattr(main,'store',Store(tmp_path))
     main.rate_buckets.clear()
+    main.provider.reset()
     with TestClient(main.app) as c:
         assert c.post('/api/session').status_code==200
         yield c
@@ -146,3 +147,73 @@ def test_cross_origin_mutation_blocked(client):
 def test_unknown_cannot_submit(client):
     case=client.post('/api/cases',json={}).json()
     assert client.post(f"/api/cases/{case['id']}/simulate",json={'approved':True,'revision':0,'idempotency_key':'unknown1234'}).status_code==422
+
+def test_cloud_quota_does_not_lose_text(client,monkeypatch):
+    import httpx
+    from openai import RateLimitError
+    monkeypatch.setenv('AI_MODE','live')
+    calls=[]
+    def fail(*args,**kwargs):
+        calls.append(True)
+        raise RateLimitError('quota exhausted',response=httpx.Response(429,request=httpx.Request('POST','https://api.openai.com/v1/responses')),body={'code':'insufficient_quota'})
+    monkeypatch.setattr(main.ai,'extract',fail)
+    c=client.post('/api/cases',json={'ai_consent':True}).json()
+    base=f"/api/cases/{c['id']}"
+    c=client.post(base+'/messages',json={'text':'My broker has not processed my withdrawal.'}).json()
+    assert c['messages'][0]['text']=='My broker has not processed my withdrawal.'
+    assert c['service_notice']['code']=='quota'
+    assert c['messages'][-1]['provider']=='local_rules'
+    assert 'name of the broker' in c['messages'][-1]['text']
+    c=client.post(base+'/messages',json={'text':'Example Securities'}).json()
+    assert c['facts']['entity_name']=='Example Securities'
+    assert len(calls)==1  # cooldown prevents repeated failures for every reply
+    c=client.post(base+'/messages',json={'text':'yesterday'}).json()
+    assert c['facts']['incident_date']
+    assert len(c['messages'])==6
+    saved=client.get(base).json()
+    assert saved['facts']==c['facts']
+
+def test_local_intake_keeps_payment_context_and_handles_negation(client):
+    c=client.post('/api/cases',json={}).json();base=f"/api/cases/{c['id']}"
+    c=client.post(base+'/messages',json={'text':'A Telegram scammer contacted me. I have not sent money.'}).json()
+    assert c['route']['urgent'] is False
+    c=client.post(base+'/messages',json={'text':'I paid Rs 25000 yesterday.'}).json()
+    assert c['route']['urgent'] is True
+    assert c['facts']['amount']==25000
+    c=client.post(base+'/messages',json={'text':'TEST123456789'}).json()
+    assert c['facts']['transaction_reference']=='TEST123456789'
+    assert c['route']['urgent'] is True
+
+def test_local_voice_without_ai_consent(client,monkeypatch):
+    c=client.post('/api/cases',json={'ai_consent':False}).json()
+    monkeypatch.setattr(main.local_media,'status',lambda:{'local_voice':True,'local_ocr':True})
+    monkeypatch.setattr(main.local_media,'transcribe',lambda raw,language:'My withdrawal is delayed.')
+    r=client.post(f"/api/cases/{c['id']}/transcribe",files={'file':('voice.mp4',b'test mocked audio','audio/mp4')})
+    assert r.status_code==200,r.text
+    assert r.json()['provider']=='local_whisper'
+    assert not client.get(f"/api/cases/{c['id']}").json()['messages']  # transcript must be reviewed
+
+def test_local_ocr_survives_cloud_failure(client,monkeypatch):
+    from PIL import Image
+    image=io.BytesIO();Image.new('RGB',(100,100),'white').save(image,format='PNG')
+    c=client.post('/api/cases',json={}).json()
+    monkeypatch.setattr(main.local_media,'status',lambda:{'local_voice':True,'local_ocr':True})
+    monkeypatch.setattr(main.local_media,'ocr_image',lambda raw:'Amount: INR 5000\nTransaction reference: TEST111222333\nDate: 2026-09-29')
+    r=client.post(f"/api/cases/{c['id']}/evidence",files={'file':('receipt.png',image.getvalue(),'image/png')})
+    assert r.status_code==200,r.text
+    assert r.json()['facts']['transaction_reference']=='TEST111222333'
+    assert r.json()['evidence'][0]['ocr_provider']=='local_rapidocr'
+
+def test_response_survives_ai_outage(client,monkeypatch):
+    c=submit(client,demo(client))
+    base=f"/api/cases/{c['id']}"
+    client.patch(base+'/preferences',json={'language':'en','ai_consent':True,'preferred_channel':'in_app'})
+    monkeypatch.setenv('AI_MODE','live')
+    original=main.ai.explain_response
+    def flaky(case,text):
+        if case['ai_consent']: raise RuntimeError('provider unavailable')
+        return original(case,text)
+    monkeypatch.setattr(main.ai,'explain_response',flaky)
+    r=client.post(base+'/responses',json={'text':'Your payout remains pending while we investigate.','source':'entity','received_at':datetime.now(timezone.utc).isoformat()})
+    assert r.status_code==200,r.text
+    assert r.json()['responses'][-1]['provider']=='local_summary'

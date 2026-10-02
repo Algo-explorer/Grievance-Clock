@@ -22,6 +22,7 @@ from .storage import Store
 from .engine import now, event, refresh, add_clock, reminders, next_escalation, RULES
 from . import intelligence as ai
 from . import documents
+from . import provider, local_media
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / '.env.local')
@@ -87,9 +88,24 @@ def public(case):
     case['escalation']=next_escalation(case)
     return case
 
+def interpret(c,text,image=None,evidence=False):
+    """Provider outages must never turn ordinary intake into a failed request."""
+    warning=provider.problem() if ai.mode(c)=='live' else None
+    if ai.mode(c)=='live' and not warning:
+        try:
+            result,source=ai.extract(c,text,image)
+            c['service_notice']=None
+            return result,source
+        except Exception as exc:
+            warning=provider.failed(exc)
+    from .local_intake import understand
+    c['service_notice']=warning
+    return understand(c,text,evidence=evidence)
+
 @app.get('/api/health')
 def health():
-    return {'ok':True,'ai_mode':os.getenv('AI_MODE','live'),'ai_configured':bool(os.getenv('OPENAI_API_KEY')),'filing_mode':'simulation_and_assisted','rules_version':RULES['version']}
+    return {'ok':True,'service':'grievance-clock','ai_mode':os.getenv('AI_MODE','live'),'ai_configured':bool(os.getenv('OPENAI_API_KEY')),'ai_issue':provider.problem(),
+            **local_media.status(),'fraud_configured':bool(os.getenv('FRAUD_API_URL')),'filing_mode':'simulation_and_assisted','rules_version':RULES['version']}
 
 @app.post('/api/session')
 def session(request: Request, response: Response):
@@ -134,15 +150,13 @@ def message(case_id: str, body: MessageIn, who=Depends(owner)):
     limited(who)
     c=store.get(who,case_id); mutable(c)
     if ai.sensitive(body.text): raise HTTPException(422,'Remove OTPs, PINs or passwords before sending. We do not need them.')
-    try: extraction, provider=ai.extract(c,body.text)
-    except Exception:
-        raise HTTPException(503,'The AI service is unavailable. Your message was not saved. Retry, or switch off AI sharing to use local intake and manual facts.')
+    extraction, source=interpret(c,body.text)
     c['messages'].append({'id':uuid.uuid4().hex,'role':'user','text':body.text,'normalized_text':extraction.normalized_text,'at':now()})
-    c['messages'].append({'id':uuid.uuid4().hex,'role':'assistant','text':extraction.reply,'provider':provider,'at':now()})
+    c['messages'].append({'id':uuid.uuid4().hex,'role':'assistant','text':extraction.reply,'provider':source,'at':now()})
     if not extraction.out_of_scope:
         c['facts']=extraction.facts.model_dump(mode='json'); c['facts_confirmed']=False; c['draft']=None
         if c['status']=='ready_to_submit': c['status']='ready_for_review'
-        event(c,'FACTS_EXTRACTED',{'provider':provider})
+        event(c,'FACTS_EXTRACTED',{'provider':source})
     return public(store.save(who,c))
 
 @app.put('/api/cases/{case_id}/facts')
@@ -187,17 +201,18 @@ def evidence(case_id: str, file: UploadFile=File(...), who=Depends(owner)):
     except Exception: raise HTTPException(422,'Use a readable PNG, JPG, WebP, UTF-8 TXT or unencrypted PDF (up to 50 pages).')
     if ai.sensitive(text): raise HTTPException(422,'This document appears to contain a secret. Upload a redacted copy.')
     ev={'id':uuid.uuid4().hex,'name':name,'mime':mime,'size':len(raw),'sha256':hashlib.sha256(raw).hexdigest(),'verified':False,'created_at':now(),'extraction_status':'needs_manual_review'}
-    if (text or image) and ai.mode(c)=='live':
+    if not text and local_media.status()['local_ocr'] and (image or mime=='application/pdf'):
         try:
-            extraction,_=ai.extract(c,'Extract facts from this evidence. '+text,image)
-            ev['proposed_facts']=extraction.facts.model_dump(mode='json')
-            ev['extraction_status']='extracted_unverified'
-            c['facts']=extraction.facts.model_dump(mode='json')
-        except Exception: ev['extraction_status']='service_unavailable_manual_review'
-    elif text:
-        extraction,_=ai.fallback(c,text)
+            text=local_media.ocr_image(raw) if image else local_media.ocr_pdf(raw)
+            ev['ocr_provider']='local_rapidocr'
+            if mime=='application/pdf': ev['ocr_page_limit']=5
+        except Exception:
+            ev['ocr_warning']='Local OCR could not read this file. Check the original and enter facts manually.'
+    if ai.sensitive(text): raise HTTPException(422,'This document appears to contain a secret. Upload a redacted copy.')
+    if text or (image and ai.mode(c)=='live'):
+        extraction,source=interpret(c,text or 'Read the attached evidence.',image,evidence=True)
         ev['proposed_facts']=extraction.facts.model_dump(mode='json'); c['facts']=extraction.facts.model_dump(mode='json')
-        ev['extraction_status']='local_rules_unverified'
+        ev['extraction_status']='extracted_unverified' if source=='openai' else 'local_rules_unverified' if text else 'needs_manual_review'
     ev['extracted_text']=text
     store.write_evidence(ev['id'],raw)
     c['evidence'].append(ev); c['facts_confirmed']=False; c['draft']=None
@@ -219,12 +234,26 @@ def download_evidence(case_id: str,evidence_id: str,who=Depends(owner)):
 def transcribe(case_id: str,file: UploadFile=File(...),who=Depends(owner)):
     limited(who)
     c=store.get(who,case_id)
-    if ai.mode(c)!='live': raise HTTPException(422,'Enable AI sharing for voice transcription, or type your message.')
+    mutable(c)
     raw=file.file.read(12*1024*1024+1)
     if not raw or len(raw)>12*1024*1024: raise HTTPException(413,'Audio must be under 12 MB.')
-    try: text=ai.transcribe(raw,'voice.webm',c['language'])
-    except Exception: raise HTTPException(503,'Voice transcription is unavailable. Please type your message or retry.')
-    return {'text':text,'notice':'Review the transcript before sending. Audio was not stored.'}
+    suffix=Path(file.filename or 'voice.webm').suffix.lower()
+    if suffix not in ('.webm','.wav','.mp3','.mp4','.m4a','.ogg','.flac'):
+        raise HTTPException(422,'Unsupported audio format. Use WebM, WAV, MP3, MP4, M4A, OGG or FLAC.')
+    if local_media.status()['local_voice']:
+        try: text=local_media.transcribe(raw,c['language'])
+        except ValueError as exc: raise HTTPException(422,str(exc))
+        except Exception: raise HTTPException(422,'Could not decode or transcribe this recording. Try again or upload a WAV/MP3 recording.')
+        return {'text':text,'provider':'local_whisper','notice':'Transcribed locally. Review before sending. Audio was not stored.'}
+    if ai.mode(c)!='live': raise HTTPException(503,'Local voice model is not installed. Run the local voice setup, or enable cloud AI sharing.')
+    issue=provider.problem()
+    if issue: raise HTTPException(503,issue['message']+' Voice model setup is needed for offline transcription.')
+    try: text=ai.transcribe(raw,'voice'+suffix,c['language'])
+    except Exception as exc:
+        issue=provider.failed(exc)
+        raise HTTPException(503,issue['message']+' Install local voice to transcribe without cloud access.')
+    if not text.strip(): raise HTTPException(422,'No clear speech was detected. Please record again.')
+    return {'text':text,'provider':'openai','notice':'Review the transcript before sending. Audio was not stored.'}
 
 @app.post('/api/cases/{case_id}/fraud-analysis')
 def fraud_analysis(case_id: str,who=Depends(owner)):
@@ -296,11 +325,20 @@ def official_response(case_id: str,body: ResponseIn,who=Depends(owner)):
     expected={'SCORES':'SCORES_ENTITY_ATR','review_1':'SCORES_REVIEW_1_ATR'}.get(latest['portal'],'entity')
     if body.source!=expected: raise HTTPException(422,'Choose the response source for the latest filing: '+expected)
     if ai.sensitive(body.text): raise HTTPException(422,'Remove secret credentials before sending.')
-    try: explanation=ai.explain_response(c,body.text)
-    except Exception: raise HTTPException(503,'Response explanation is unavailable. Please retry.')
+    explanation_provider='local_summary'
+    if ai.mode(c)=='live' and not provider.problem():
+        try:
+            explanation=ai.explain_response(c,body.text)
+            explanation_provider='openai'
+        except Exception as exc:
+            c['service_notice']=provider.failed(exc)
+            explanation=ai.explain_response({**c,'ai_consent':False},body.text)
+    else:
+        c['service_notice']=provider.problem() if ai.mode(c)=='live' else None
+        explanation=ai.explain_response({**c,'ai_consent':False},body.text)
     for d in c['deadlines']:
         if d['status']=='open': d['status']='completed'
-    r={**body.model_dump(mode='json'),'explanation':explanation,'id':uuid.uuid4().hex}
+    r={**body.model_dump(mode='json'),'explanation':explanation,'provider':explanation_provider,'id':uuid.uuid4().hex}
     c['responses'].append(r); c['status']='response_received'
     ev=event(c,'RESPONSE_RECEIVED',{'source':body.source},body.received_at.isoformat())
     add_clock(c,body.source,body.received_at.isoformat(),latest['simulated'],ev['id'])

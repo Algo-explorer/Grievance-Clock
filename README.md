@@ -16,10 +16,9 @@ npm ci
 
 Copy `.env.example` to `.env.local` and configure the server-only settings. Never commit `.env.local`. AI sharing is opt-in per case. Set `AI_MODE=demo` for a no-key, no-network rehearsal. In demo mode, extraction is a limited local rule parser, **not an LLM**; edit missing facts manually.
 
-Start the backend and frontend in separate terminals from the repository root:
+Start both services from the repository root (the launcher uses the project .venv):
 
 ```sh
-.venv\Scripts\python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 npm run dev
 ```
 
@@ -27,14 +26,16 @@ Open **http://127.0.0.1:3000**. API documentation: **http://127.0.0.1:8000/docs*
 
 On Windows, `scripts/start.ps1` starts both servers in hidden windows, stores their process IDs in ignored `tmp/`, and prints their addresses. `scripts/stop.ps1` stops only those recorded processes after checking their command lines.
 
+Text sends with Enter or the Send button; Shift+Enter adds a newline. Cloud failures trigger a labeled local rule-based intake response, preserving the message and case. This fallback is not an LLM and supports English/Hindi prompts; review extracted facts.
+
 ## What works
 
 - Responsive Next.js workspace with case dashboard, conversational intake, evidence locker, documents and timeline.
 - OpenAI Responses API + Pydantic structured extraction, image evidence interpretation and response explanation; original user text is preserved separately from normalized text.
-- Browser microphone recording, server-side transcription and browser read-aloud. Transcript review precedes sending. No raw audio is stored.
+- Browser microphone recording, local Whisper transcription and browser read-aloud. Install the voice model once with `.venv\Scripts\python -m scripts.setup_local_voice`. Transcript review precedes sending; raw audio is not stored. Cloud transcription is a consent-controlled alternative when the local model is absent.
 - English/Hindi core navigation and starter prompts; English, Hindi, Bengali, Tamil, Telugu and Marathi selection for AI responses / transcription. Secondary UI remains English. Browser TTS voices vary by device.
 - Encrypted SQLite case aggregates and encrypted original evidence. SHA-256 hashes, owner-scoped sessions and optimistic concurrency checks.
-- JPG/PNG/WebP, text PDFs and TXT intake. Scanned PDFs without a text layer require image upload or manual review; they are not silently treated as OCR successes.
+- JPG/PNG/WebP, PDFs and TXT intake, with local OCR for images and the first five pages of scanned PDFs. Review OCR results; local OCR language coverage is limited.
 - User confirmation invalidated whenever facts/evidence change. Complaint letter, printable offline checklist and ZIP dossier with unchanged original files.
 - Deterministic routing and calendar-day calculations in Asia/Kolkata, with source/version metadata.
 - Labeled local portal simulation, explicit approval, idempotent acknowledgements and an example Playwright demo workflow.
@@ -53,7 +54,7 @@ This is a working **hackathon prototype**, not a production complaint-filing ser
 | Government / regulator submission | Assisted links + user-entered real acknowledgement. No live portal connector, CAPTCHA bypass, OTP handling or automatic external filing. |
 | Automated demo filing | Local mock portal / API, `DEMO-` references only. |
 | AI services | Implemented; require a funded and accessible OpenAI API project. Configuration alone does not establish working quota. |
-| BHASHINI | Not configured. OpenAI transcription and browser TTS are the implemented language providers. |
+| BHASHINI | Not configured. Local Whisper, optional OpenAI transcription and browser TTS are implemented. |
 | Official forms | Complaint and checklist are generated; statutory ISR/transmission forms must come from the applicable institution. No invented or mislabeled forms. |
 | Branch finder | Official NSDL directory link. No fabricated branch addresses or claimed nearest-branch map. |
 | Notification delivery | In-app and clearly labeled local SMS/WhatsApp simulations; no outbound messaging credentials. |
