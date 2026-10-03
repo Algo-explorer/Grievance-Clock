@@ -36,6 +36,13 @@ class Store:
     def connect(self):
         return sqlite3.connect(self.db, timeout=20)
 
+    def account(self,owner):
+        # Local development persists cases under the verified account subject.
+        pass
+
+    def delete_evidence(self,evidence_id):
+        (self.root/'evidence'/evidence_id).unlink(missing_ok=True)
+
     def session(self, token):
         if not token:
             return None
@@ -88,7 +95,7 @@ class Store:
         with self.connect() as db:
             db.execute('DELETE FROM cases WHERE id=? AND owner=?', (case_id, owner))
         for ev in case['evidence']:
-            (self.root / 'evidence' / ev['id']).unlink(missing_ok=True)
+            self.delete_evidence(ev['id'])
 
     def all_cases(self):
         with self.connect() as db:

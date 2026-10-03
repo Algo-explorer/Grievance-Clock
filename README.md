@@ -2,6 +2,10 @@
 
 **Your next step, made clear.** A SANGYAN Track B prototype for investor grievances: multilingual intake, evidence preservation, fact review, deterministic routing, complaint preparation, assisted filing and event-driven follow-up.
 
+## Accounts and data
+
+Account access uses **Clerk + MongoDB Atlas**. Follow [account setup](docs/accounts.md) for keys, encryption, database access and verification. Existing anonymous local data is preserved separately, not automatically migrated.
+
 ## Run locally
 
 Requires Node.js 22+ and Python 3.12+.
@@ -14,7 +18,7 @@ python -m venv .venv
 npm ci
 ```
 
-Copy `.env.example` to `.env.local` and configure the server-only settings. Never commit `.env.local`. AI sharing is opt-in per case. Set `AI_MODE=demo` for a no-key, no-network rehearsal. In demo mode, extraction is a limited local rule parser, **not an LLM**; edit missing facts manually.
+Copy `.env.example` to `.env.local` and configure the server-only settings. Never commit `.env.local`. AI sharing is opt-in per case. For an isolated local rehearsal without account providers, explicitly set `AUTH_MODE=local`, leave `MONGODB_URI` blank, and set `AI_MODE=demo`. In demo mode, extraction is a limited local rule parser, **not an LLM**; edit missing facts manually.
 
 Start both services from the repository root (the launcher uses the project .venv):
 
@@ -36,7 +40,7 @@ Hinglish (Hindi written in English letters) is detected automatically, or select
 - OpenAI Responses API + Pydantic structured extraction, image evidence interpretation and response explanation; original user text is preserved separately from normalized text.
 - Browser microphone recording, local Whisper small transcription and dedicated local Hindi read-aloud. Install the voice model once with `.venv\Scripts\python -m scripts.setup_local_voice`. Install Hindi playback with `.venv\Scripts\python -m scripts.setup_local_tts`. Transcript review precedes sending; raw audio is not stored. See [voice setup and licensing](docs/voice.md). Cloud transcription is a consent-controlled alternative when the local model is absent.
 - English/Hindi core navigation and starter prompts; English, Hindi, Bengali, Tamil, Telugu and Marathi selection for AI responses / transcription. Secondary UI remains English. Hindi uses Piper; other languages require matching browser voices. Automatic recording language detection is independent of the chat language.
-- Encrypted SQLite case aggregates and encrypted original evidence. SHA-256 hashes, owner-scoped sessions and optimistic concurrency checks.
+- Encrypted MongoDB case records and GridFS evidence, with SQLite available for local development. SHA-256 hashes, account ownership and optimistic concurrency checks.
 - JPG/PNG/WebP, PDFs and TXT intake, with local OCR for images and the first five pages of scanned PDFs. Review OCR results; local OCR language coverage is limited.
 - User confirmation invalidated whenever facts/evidence change. Complaint letter, printable offline checklist and ZIP dossier with unchanged original files.
 - Deterministic routing and calendar-day calculations in Asia/Kolkata, with source/version metadata.
@@ -60,7 +64,7 @@ This is a working **hackathon prototype**, not a production complaint-filing ser
 | Official forms | Complaint and checklist are generated; statutory ISR/transmission forms must come from the applicable institution. No invented or mislabeled forms. |
 | Branch finder | Official NSDL directory link. No fabricated branch addresses or claimed nearest-branch map. |
 | Notification delivery | In-app and clearly labeled local SMS/WhatsApp simulations; no outbound messaging credentials. |
-| Database / authentication | Encrypted SQLite + browser-session ownership; no Supabase account or hosted database is required. Losing the cookie loses access to the session. |
+| Database / authentication | Clerk verified accounts + encrypted MongoDB Atlas/GridFS. SQLite and anonymous sessions remain explicit local-test options. |
 | Deployment | Docker configuration and deployment instructions supplied. An always-on backend and persistent storage are required. |
 
 ## Architecture
@@ -80,7 +84,7 @@ Next.js / React client
 
 The model cannot write a deadline, choose a filing state, submit externally or set an acknowledgement. Those transitions are server-controlled. An AI classification is still an interpretation: **the user must check facts and category before filing**.
 
-SQLite stores encrypted case aggregates containing messages, evidence metadata, events, filings, responses, deadlines and notifications. Originals are separate encrypted files. This intentionally keeps one deployable backend; the API contracts allow a later PostgreSQL/Supabase migration.
+MongoDB stores encrypted case aggregates containing messages, evidence metadata, events, filings, responses, deadlines and notifications. Original evidence is encrypted in GridFS. Clerk subjects identify owners; no passwords are stored in the app database. Local development can use the same owner-scoped interface backed by SQLite and encrypted files.
 
 ## Rules and sources
 

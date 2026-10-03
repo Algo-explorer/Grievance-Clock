@@ -6,6 +6,7 @@ import os
 import time
 import uuid
 import zipfile
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,9 +17,12 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from PIL import Image
+from pymongo.errors import PyMongoError
 from pypdf import PdfReader
 from .models import *
 from .storage import Store
+from . import authentication
+from .mongo_storage import configured_store
 from .engine import now, event, refresh, add_clock, reminders, next_escalation, RULES
 from . import intelligence as ai
 from . import documents
@@ -26,7 +30,8 @@ from . import provider, local_media, conversation, hinglish, formal
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / '.env.local')
-store = Store(Path(os.getenv('DATA_DIR', str(ROOT / 'data'))))
+authentication.mode()
+store = configured_store(Path(os.getenv('DATA_DIR', str(ROOT / 'data'))))
 allowed_origins = set(os.getenv('ALLOWED_ORIGINS','http://127.0.0.1:3000,http://localhost:3000').split(','))
 rate_buckets = defaultdict(deque)
 rate_lock = Lock()
@@ -39,7 +44,9 @@ async def scheduler():
                 if reminders(case):
                     try: store.save(owner, case)
                     except HTTPException: pass
-        await asyncio.to_thread(tick)
+        try: await asyncio.to_thread(tick)
+        except PyMongoError:
+            logging.getLogger(__name__).warning('Reminder database temporarily unavailable; retrying next cycle')
 
 @asynccontextmanager
 async def lifespan(app):
@@ -69,6 +76,8 @@ async def protect(request: Request, call_next):
     return response
 
 def owner(request: Request):
+    if authentication.mode()=='clerk':
+        return authentication.clerk_owner(request)
     result=store.session(request.cookies.get('gc_session'))
     if not result: raise HTTPException(401,'Start a private session first')
     return result
@@ -107,10 +116,15 @@ def interpret(c,text,image=None,evidence=False):
 @app.get('/api/health')
 def health():
     return {'ok':True,'service':'grievance-clock','ai_mode':os.getenv('AI_MODE','live'),'ai_configured':bool(os.getenv('OPENAI_API_KEY')),'ai_issue':provider.problem(),
-            **local_media.status(),'fraud_configured':bool(os.getenv('FRAUD_API_URL')),'filing_mode':'simulation_and_assisted','rules_version':RULES['version']}
+            **local_media.status(),'auth_mode':authentication.mode(),'storage_backend':'mongodb' if os.getenv('MONGODB_URI') else 'sqlite',
+            'fraud_configured':bool(os.getenv('FRAUD_API_URL')),'filing_mode':'simulation_and_assisted','rules_version':RULES['version']}
 
 @app.post('/api/session')
 def session(request: Request, response: Response):
+    if authentication.mode()=='clerk':
+        who=authentication.clerk_owner(request)
+        store.account(who)
+        return {'ok':True,'account_id':who,'authentication':'clerk'}
     if not store.session(request.cookies.get('gc_session')):
         token,_=store.new_session()
         response.set_cookie('gc_session',token,httponly=True,samesite='strict',secure=os.getenv('COOKIE_SECURE','false')=='true',max_age=30*86400,path='/')
@@ -247,9 +261,9 @@ def evidence(case_id: str, file: UploadFile=File(...), replace_id: str | None=Fo
     event(c,'EVIDENCE_ADDED',{'name':name,'sha256':ev['sha256']})
     try: result=public(store.save(who,c))
     except Exception:
-        (store.root/'evidence'/ev['id']).unlink(missing_ok=True)
+        store.delete_evidence(ev['id'])
         raise
-    if replaced: (store.root/'evidence'/replace_id).unlink(missing_ok=True)
+    if replaced: store.delete_evidence(replace_id)
     return result
 
 @app.delete('/api/cases/{case_id}/evidence/{evidence_id}')
@@ -262,7 +276,7 @@ def remove_evidence(case_id: str,evidence_id: str,who=Depends(owner)):
     c.pop('formal_preview',None); c.pop('complaint_preview',None)
     event(c,'EVIDENCE_REMOVED',{'evidence_id':evidence_id})
     result=public(store.save(who,c))
-    (store.root/'evidence'/evidence_id).unlink(missing_ok=True)
+    store.delete_evidence(evidence_id)
     return result
 
 @app.post('/api/cases/{case_id}/resolve')

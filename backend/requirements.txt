@@ -16,3 +16,5 @@ av>=11,<16
 rapidocr-onnxruntime>=1.4,<2
 pypdfium2>=5,<6
 piper-tts==1.8.0
+pymongo>=4.10,<5
+PyJWT[crypto]>=2.10,<3

@@ -10,6 +10,7 @@ from backend.engine import reminders, add_clock, next_escalation
 
 @pytest.fixture
 def client(tmp_path,monkeypatch):
+    monkeypatch.setenv('AUTH_MODE','local')
     monkeypatch.setenv('AI_MODE','demo')
     monkeypatch.setattr(main,'store',Store(tmp_path))
     main.rate_buckets.clear()
