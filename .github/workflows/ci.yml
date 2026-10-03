@@ -15,8 +15,9 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - run: pip install -r backend/requirements.lock.txt
+          cache-dependency-path: frontend/package-lock.json
+      - run: pip install -r backend/requirements.lock.txt -r backend/requirements-dev.txt
       - run: python -m pytest backend/tests -q
-      - run: npm ci
+      - run: npm ci --prefix frontend
       - run: npm run typecheck
       - run: npm run build

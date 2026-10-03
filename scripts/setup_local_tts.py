@@ -9,6 +9,7 @@ os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING']='1'
 os.environ['HF_HUB_DISABLE_XET']='1'
 from huggingface_hub import hf_hub_download
 from backend.local_media import ROOT, hindi_voice_path
+load_dotenv(ROOT/'backend'/'.env.local')
 load_dotenv(ROOT/'.env.local')
 
 if __name__=='__main__':

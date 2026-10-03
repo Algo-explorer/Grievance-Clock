@@ -2,6 +2,8 @@
 from pathlib import Path
 from dotenv import load_dotenv
 import os
+load_dotenv(Path(__file__).resolve().parents[1]/'frontend'/'.env.local')
+load_dotenv(Path(__file__).resolve().parents[1]/'backend'/'.env.local')
 load_dotenv(Path(__file__).resolve().parents[1]/'.env.local')
 required=['MONGODB_URI','NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY','CLERK_SECRET_KEY','CLERK_ISSUER_URL','DATA_ENCRYPTION_KEY']
 missing=[key for key in required if not os.getenv(key)]

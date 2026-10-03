@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import {ClerkProvider} from '@clerk/nextjs';
 import AccountBoundary from './AccountBoundary';
 import './globals.css';
+export const dynamic='force-dynamic';
 export const metadata: Metadata = {title:'Grievance Clock — Your next step, made clear',description:'An accessible investor grievance assistant. Explain your problem, prepare evidence and keep track of the next step.',icons:{icon:'/favicon.svg'}};
 export default function RootLayout({children}:{children:React.ReactNode}) {
  const local=process.env.AUTH_MODE==='local'&&process.env.APP_ENV!=='production';

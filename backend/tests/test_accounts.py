@@ -94,3 +94,22 @@ def test_missing_issuer_and_production_guest_fail_closed(monkeypatch):
     assert err.value.status_code==503
     monkeypatch.setenv('APP_ENV','production');monkeypatch.setenv('AUTH_MODE','local')
     with pytest.raises(RuntimeError):authentication.mode()
+
+def test_cors_preflight_and_authenticated_cross_origin_requests(accounts):
+    client,token,_=accounts
+    origin='http://127.0.0.1:3000'
+    preflight={'Origin':origin,'Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'authorization,content-type'}
+    result=client.options('/api/cases',headers=preflight)
+    assert result.status_code==200
+    assert result.headers['access-control-allow-origin']==origin
+    assert 'access-control-allow-credentials' not in result.headers
+    assert client.options('/api/cases',headers={**preflight,'Origin':'https://attacker.example'}).status_code==400
+    headers={'Origin':origin,'Sec-Fetch-Site':'cross-site','Authorization':'Bearer '+token()}
+    assert client.post('/api/cases',json={},headers=headers).status_code==201
+    assert client.post('/api/cases',json={},headers={**headers,'Origin':'https://attacker.example'}).status_code==403
+    client.cookies.set('__session',token())
+    assert client.post('/api/cases',json={},headers={'Origin':origin,'Sec-Fetch-Site':'cross-site'}).status_code==403
+    client.cookies.clear()
+    denied=client.get('/api/cases',headers={'Origin':origin})
+    assert denied.status_code==401
+    assert denied.headers['access-control-allow-origin']==origin

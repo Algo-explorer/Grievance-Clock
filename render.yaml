@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: grievance-clock-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Local speech models need more RAM than Render's 512 MB free instance.
+    plan: standard
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: AUTH_MODE
+        value: clerk
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: MONGODB_DATABASE
+        value: grievance_clock
+      - key: MONGODB_URI
+        sync: false
+      - key: DATA_ENCRYPTION_KEY
+        sync: false
+      - key: CLERK_ISSUER_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: AI_MODE
+        value: live

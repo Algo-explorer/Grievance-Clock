@@ -35,7 +35,7 @@ def clerk_owner(request: Request):
         key=key_client(url).get_signing_key_from_jwt(token).key
         claims=jwt.decode(token,key,algorithms=['RS256'],issuer=url,
             options={'require':['exp','iat','nbf','iss','sub','sid','azp'],'verify_aud':False},leeway=5)
-        allowed={v.strip() for v in os.getenv('ALLOWED_ORIGINS','http://127.0.0.1:3000,http://localhost:3000').split(',')}
+        allowed={v.strip().rstrip('/') for v in os.getenv('ALLOWED_ORIGINS','http://127.0.0.1:3000,http://localhost:3000').split(',') if v.strip()}
         if claims['azp'] not in allowed or not isinstance(claims['sub'],str) or not claims['sub'].startswith('user_'):
             raise jwt.InvalidTokenError('Invalid subject or authorized party')
         # Clerk's pending sessions have not completed required account setup.

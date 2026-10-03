@@ -5,6 +5,7 @@ os.environ['HF_HUB_DISABLE_XET']='1'
 from faster_whisper.utils import download_model
 from dotenv import load_dotenv
 from backend.local_media import model_dir, speech_model, ROOT
+load_dotenv(ROOT/'backend'/'.env.local')
 load_dotenv(ROOT/'.env.local')
 
 if __name__=='__main__':

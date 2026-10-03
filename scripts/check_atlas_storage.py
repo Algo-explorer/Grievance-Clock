@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from backend.mongo_storage import MongoStore
 
 def main():
+    load_dotenv(Path(__file__).resolve().parents[1]/'backend'/'.env.local')
     load_dotenv(Path(__file__).resolve().parents[1]/'.env.local')
     uri=os.environ['MONGODB_URI'];database=os.getenv('MONGODB_DATABASE','grievance_clock')
     a=MongoStore(uri,database);b=MongoStore(uri,database)

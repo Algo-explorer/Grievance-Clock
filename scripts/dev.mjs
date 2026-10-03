@@ -8,7 +8,7 @@ const win=process.platform==='win32';
 const localPython=path.join(root,'.venv',win?'Scripts/python.exe':'bin/python');
 let backend, frontend, stopping=false;
 async function healthy(){try{const r=await fetch('http://127.0.0.1:8000/api/health',{signal:AbortSignal.timeout(1500)});return r.ok&&(await r.json()).service==='grievance-clock';}catch{return false;}}
-function launch(exe,args){return spawn(exe,args,{cwd:root,stdio:'inherit',windowsHide:true});}
+function launch(exe,args,cwd=root){return spawn(exe,args,{cwd,stdio:'inherit',windowsHide:true});}
 function stop(code=0){if(stopping)return;stopping=true;frontend?.kill();backend?.kill();process.exitCode=code;}
 process.on('SIGINT',()=>stop());process.on('SIGTERM',()=>stop());
 if(!await healthy()){
@@ -20,6 +20,6 @@ if(!await healthy()){
  if(!await healthy()){console.error('Backend did not become ready on port 8000.');stop(1);}
 }else console.log('Using the existing Grievance Clock backend on port 8000.');
 if(!stopping){
- frontend=launch(process.execPath,[path.join(root,'node_modules/next/dist/bin/next'),'dev','--webpack','--hostname','127.0.0.1',...process.argv.slice(2)]);
+ frontend=launch(process.execPath,[path.join(root,'frontend/node_modules/next/dist/bin/next'),'dev','--webpack','--hostname','127.0.0.1',...process.argv.slice(2)],path.join(root,'frontend'));
  frontend.on('error',e=>{console.error(e.message);stop(1);});frontend.on('exit',code=>stop(code||0));
 }

@@ -1,9 +1,8 @@
 services:
   backend:
     build:
-      context: .
-      dockerfile: Dockerfile.backend
-    env_file: .env.local
+      context: ./backend
+    env_file: backend/.env.local
     environment:
       DATA_DIR: /data
     volumes:
@@ -11,8 +10,13 @@ services:
     restart: unless-stopped
   frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.frontend
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+        BACKEND_URL: http://backend:8000
+    env_file: frontend/.env.local
+    environment:
+      BACKEND_URL: http://backend:8000
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:

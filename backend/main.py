@@ -16,6 +16,7 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile, File, Form
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 from pymongo.errors import PyMongoError
 from pypdf import PdfReader
@@ -29,10 +30,14 @@ from . import documents
 from . import provider, local_media, conversation, hinglish, formal
 
 ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(Path(__file__).with_name('.env.local'))
 load_dotenv(ROOT / '.env.local')
 authentication.mode()
 store = configured_store(Path(os.getenv('DATA_DIR', str(ROOT / 'data'))))
-allowed_origins = set(os.getenv('ALLOWED_ORIGINS','http://127.0.0.1:3000,http://localhost:3000').split(','))
+allowed_origins = {value.strip().rstrip('/') for value in os.getenv('ALLOWED_ORIGINS','http://127.0.0.1:3000,http://localhost:3000').split(',') if value.strip()}
+if '*' in allowed_origins: raise RuntimeError('ALLOWED_ORIGINS must contain explicit trusted origins, not a wildcard')
+if os.getenv('APP_ENV')=='production' and (not os.getenv('ALLOWED_ORIGINS') or any(not value.startswith('https://') for value in allowed_origins)):
+    raise RuntimeError('Production ALLOWED_ORIGINS must list the frontend HTTPS origins')
 rate_buckets = defaultdict(deque)
 rate_lock = Lock()
 
@@ -64,7 +69,9 @@ async def protect(request: Request, call_next):
         origin = request.headers.get('origin')
         if origin and origin not in allowed_origins:
             return JSONResponse({'detail':'Origin not allowed'}, status_code=403)
-        if request.headers.get('sec-fetch-site') == 'cross-site':
+        if request.headers.get('sec-fetch-site') == 'cross-site' and not (
+            origin in allowed_origins and request.headers.get('authorization','').startswith('Bearer ')
+        ):
             return JSONResponse({'detail':'Cross-site request blocked'}, status_code=403)
         try: size=int(request.headers.get('content-length','0'))
         except ValueError: size=0
@@ -74,6 +81,12 @@ async def protect(request: Request, call_next):
     response.headers['Cache-Control']='no-store'
     response.headers['X-Content-Type-Options']='nosniff'
     return response
+
+# Direct cross-origin clients must send a Clerk Bearer token. Browser cookies
+# remain same-origin through the frontend /api rewrite; no wildcard credentials.
+app.add_middleware(CORSMiddleware,allow_origins=sorted(allowed_origins),
+    allow_credentials=False,allow_methods=['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+    allow_headers=['Authorization','Content-Type'],expose_headers=['Content-Disposition'],max_age=600)
 
 def owner(request: Request):
     if authentication.mode()=='clerk':

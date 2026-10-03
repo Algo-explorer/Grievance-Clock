@@ -18,10 +18,12 @@ def speech_model():
     return os.getenv('LOCAL_WHISPER_MODEL') or 'small'
 
 def model_dir():
-    return Path(os.getenv('LOCAL_WHISPER_PATH') or str(ROOT/'data'/'models'/('whisper-'+speech_model())))
+    base=Path(os.getenv('MODEL_DIR') or str(ROOT/'data'/'models'))
+    return Path(os.getenv('LOCAL_WHISPER_PATH') or str(base/('whisper-'+speech_model())))
 
 def hindi_voice_path():
-    return Path(os.getenv('LOCAL_HINDI_VOICE_PATH') or str(ROOT/'data'/'models'/'piper'/'hi_IN-rohan-medium.onnx'))
+    base=Path(os.getenv('MODEL_DIR') or str(ROOT/'data'/'models'))
+    return Path(os.getenv('LOCAL_HINDI_VOICE_PATH') or str(base/'piper'/'hi_IN-rohan-medium.onnx'))
 
 def status():
     return {'local_voice':bool(importlib.util.find_spec('faster_whisper')) and (model_dir()/'model.bin').exists(),

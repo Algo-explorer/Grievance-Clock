@@ -1,6 +1,17 @@
 # Grievance Clock
 
-**Your next step, made clear.** A SANGYAN Track B prototype for investor grievances: multilingual intake, evidence preservation, fact review, deterministic routing, complaint preparation, assisted filing and event-driven follow-up.
+**Your next step, made clear.** A workspace for investor grievances: multilingual intake, evidence preservation, fact review, deterministic routing, complaint preparation, assisted filing and event-driven follow-up.
+
+## Deploy to Vercel and Render
+
+Follow [the deployment guide](docs/DEPLOYMENT.md) for exact dashboard settings, environment variables, CORS and verification. Vercel uses `frontend/`; Render uses `backend/` with Docker. The root `render.yaml` can create the backend service via a Blueprint. No hosting resources are created by this repository.
+
+```text
+frontend/    Next.js app, package lock, Vercel config and UI tests
+backend/     FastAPI, Python dependencies, Dockerfile and API tests
+scripts/     Local launch and configuration utilities
+render.yaml  Render backend Blueprint
+```
 
 ## Accounts and data
 
@@ -15,10 +26,10 @@ python -m venv .venv
 # Windows:
 .venv\Scripts\python -m pip install -r backend/requirements.lock.txt
 # macOS/Linux: .venv/bin/python -m pip install -r backend/requirements.lock.txt
-npm ci
+npm ci --prefix frontend
 ```
 
-Copy `.env.example` to `.env.local` and configure the server-only settings. Never commit `.env.local`. AI sharing is opt-in per case. For an isolated local rehearsal without account providers, explicitly set `AUTH_MODE=local`, leave `MONGODB_URI` blank, and set `AI_MODE=demo`. In demo mode, extraction is a limited local rule parser, **not an LLM**; edit missing facts manually.
+Copy `frontend/.env.example` and `backend/.env.example` to `.env.local` inside each service folder. For local use, set backend `APP_ENV=development` and `ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000`; configure Clerk, Atlas and the encryption key as described in [account setup](docs/accounts.md). Never commit environment files. Existing installations can run `python -m scripts.split_local_env` to copy the legacy root settings safely. AI sharing is opt-in per case. For an isolated local rehearsal without account providers, explicitly set `AUTH_MODE=local`, leave `MONGODB_URI` blank, and set `AI_MODE=demo`. In demo mode, extraction is a limited local rule parser, **not an LLM**; edit missing facts manually.
 
 Start both services from the repository root (the launcher uses the project .venv):
 
@@ -53,7 +64,7 @@ Hinglish (Hindi written in English letters) is detected automatically, or select
 
 ## Deliberate integration boundaries
 
-This is a working **hackathon prototype**, not a production complaint-filing service.
+External filing uses assisted links; the built-in portal is explicitly a simulation.
 
 | Capability | Current implementation |
 |---|---|
@@ -112,7 +123,7 @@ Optional synthetic live-provider smoke test (may incur API charges):
 .venv\Scripts\python -m scripts.smoke_ai
 ```
 
-UI workflow examples are in `tests/`. Run `npx playwright install chromium` and `npm run test:e2e` with both servers running. The mock portal test is a fictional, local submission only.
+UI workflow examples are in `frontend/tests/`. Run `npm --prefix frontend exec -- playwright install chromium` and `npm run test:e2e` with both servers running. The mock portal test is a fictional, local submission only.
 
 See [integration contract](docs/INTEGRATION.md), [demo script](docs/DEMO.md), [deployment](docs/DEPLOYMENT.md), and [security notes](docs/SECURITY.md).
 

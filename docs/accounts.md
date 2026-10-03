@@ -10,13 +10,13 @@ the verified Clerk subject, with creation and last-seen timestamps.
 1. Create an [Atlas cluster](https://www.mongodb.com/docs/atlas/tutorial/deploy-free-tier-cluster/).
    Create a database user with `readWrite` on `grievance_clock`, then allow only
    your development computer's IP (and later your backend host's egress IP).
-   Copy the Drivers connection string into `MONGODB_URI` in `.env.local`.
+   Copy the Drivers connection string into `MONGODB_URI` in `backend/.env.local`.
    URL-encode special characters in the password. Do not use an Atlas account
    password as a database-user password or commit the URI to Git.
 2. Create an application in the [Clerk dashboard](https://dashboard.clerk.com/).
    Enable Google and email/password, require email verification, and enable
    password-reset emails. Use development keys locally. Copy these settings
-   into `.env.local`:
+   into the appropriate service environment file (publishable/secret keys in `frontend/.env.local`; issuer and MongoDB settings in `backend/.env.local`; `AUTH_MODE` and `APP_ENV` in both):
 
    ```dotenv
    AUTH_MODE=clerk
@@ -31,8 +31,11 @@ the verified Clerk subject, with creation and last-seen timestamps.
    The issuer is the Clerk Frontend API URL, **not** the dashboard URL. Keep the
    exact origin you use locally in `ALLOWED_ORIGINS` (defaults include
    `http://127.0.0.1:3000` and `http://localhost:3000`).
-3. Run `python -m scripts.prepare_account_config` to create missing config slots
-   and save the encryption key privately. Existing credentials are not changed.
+3. Set a Fernet `DATA_ENCRYPTION_KEY` in `backend/.env.local`. Generate one with
+   `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+   only for a new database. For existing data, reuse its current key. Legacy root
+   settings can be copied with `python -m scripts.split_local_env`; it preserves
+   populated service settings and does not print secrets.
    Back up `DATA_ENCRYPTION_KEY` securely; losing it makes records unreadable.
 4. Run `python -m scripts.check_account_config`, then restart both servers with
    `npm run dev`. Only missing setting names or connection status are printed.
@@ -79,3 +82,5 @@ Unit tests run against isolated SQLite and MongoDB test doubles, never your Atla
 cluster. Install `backend/requirements-dev.txt` to run `pytest backend/tests`.
 Real provider sign-up/reset and Atlas persistence require configured accounts;
 mock tests are not a substitute for those integration checks.
+
+See [Vercel + Render deployment](DEPLOYMENT.md) for the service-specific hosting setup.

@@ -18,4 +18,6 @@ export default async function proxy(request:NextRequest,event:NextFetchEvent){
  }
  return response;
 }
-export const config={matcher:['/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)','/(api|trpc)(.*)']};
+// API calls go straight through the external rewrite. FastAPI verifies Clerk
+// itself; keeping uploads out of middleware avoids its smaller body limit.
+export const config={matcher:['/((?!api(?:/|$)|_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)']};
