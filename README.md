@@ -2,17 +2,6 @@
 
 **Your next step, made clear.** A workspace for investor grievances: multilingual intake, evidence preservation, fact review, deterministic routing, complaint preparation, assisted filing and event-driven follow-up.
 
-## Deploy to Vercel and Render
-
-Follow [the deployment guide](docs/DEPLOYMENT.md) for exact dashboard settings, environment variables, CORS and verification. Vercel uses `frontend/`; Render uses `backend/` with Docker. The root `render.yaml` can create the backend service via a Blueprint. No hosting resources are created by this repository.
-
-```text
-frontend/    Next.js app, package lock, Vercel config and UI tests
-backend/     FastAPI, Python dependencies, Dockerfile and API tests
-scripts/     Local launch and configuration utilities
-render.yaml  Render backend Blueprint
-```
-
 ## Accounts and data
 
 Account access uses **Clerk + MongoDB Atlas**. Follow [account setup](docs/accounts.md) for keys, encryption, database access and verification. Existing anonymous local data is preserved separately, not automatically migrated.
