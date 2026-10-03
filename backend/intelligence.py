@@ -63,4 +63,5 @@ def explain_response(case, text):
 def transcribe(data, filename, language):
     stream=io.BytesIO(data)
     stream.name=filename
-    return client().audio.transcriptions.create(model=os.getenv('OPENAI_TRANSCRIBE_MODEL','gpt-4o-mini-transcribe'),file=stream,language=language).text
+    options={'language':language} if language else {}
+    return client().audio.transcriptions.create(model=os.getenv('OPENAI_TRANSCRIBE_MODEL','gpt-4o-mini-transcribe'),file=stream,**options).text

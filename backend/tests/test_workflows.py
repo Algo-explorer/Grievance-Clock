@@ -193,6 +193,51 @@ def test_local_voice_without_ai_consent(client,monkeypatch):
     assert r.json()['provider']=='local_whisper'
     assert not client.get(f"/api/cases/{c['id']}").json()['messages']  # transcript must be reviewed
 
+def test_recording_language_is_independent_of_chat(client,monkeypatch):
+    c=client.post('/api/cases',json={'language':'hi','ai_consent':False}).json()
+    captured=[]
+    monkeypatch.setattr(main.local_media,'status',lambda:{'local_voice':True})
+    def recognize(raw,language):
+        captured.append(language)
+        return 'Review this transcript.'
+    monkeypatch.setattr(main.local_media,'transcribe',recognize)
+    path=f"/api/cases/{c['id']}/transcribe"
+    audio={'file':('voice.webm',b'audio','audio/webm')}
+    for language in (None,'en','hi-Latn'):
+        r=client.post(path,files=audio,data={} if language is None else {'language':language})
+        assert r.status_code==200,r.text
+    assert captured==[None,'en','hi']
+    assert client.post(path,files=audio,data={'language':'nonsense'}).status_code==422
+
+def test_speech_is_private_bounded_and_local(client,monkeypatch):
+    c=client.post('/api/cases',json={'ai_consent':False}).json()
+    path=f"/api/cases/{c['id']}/speech"
+    text='नमस्ते। क्या हुआ था?'
+    monkeypatch.setattr(main.local_media,'synthesize_hindi',lambda text:b'RIFF-test-audio')
+    r=client.post(path,json={'text':text})
+    assert r.status_code==200 and r.content==b'RIFF-test-audio'
+    assert r.headers['content-type']=='audio/wav'
+    assert r.headers['cache-control']=='no-store'
+    assert client.post(path,json={'text':'x'*4001}).status_code==422
+    assert client.post(path,json={'text':'English text'}).status_code==422
+    with TestClient(main.app) as other:
+        assert other.post(path,json={'text':text}).status_code==401
+        other.post('/api/session')
+        assert other.post(path,json={'text':text}).status_code==404
+    assert client.get(f"/api/cases/{c['id']}").json()['messages']==[]
+
+def test_voice_errors_are_actionable(client,monkeypatch):
+    c=client.post('/api/cases',json={}).json()
+    monkeypatch.setattr(main.local_media,'status',lambda:{'local_voice':True})
+    def silence(*args): raise ValueError('No audible speech was found. Please record again.')
+    monkeypatch.setattr(main.local_media,'transcribe',silence)
+    r=client.post(f"/api/cases/{c['id']}/transcribe",files={'file':('voice.wav',b'silence','audio/wav')})
+    assert r.status_code==422 and 'No audible speech' in r.json()['detail']
+    def unavailable(*args): raise RuntimeError('The Hindi voice is not installed.')
+    monkeypatch.setattr(main.local_media,'synthesize_hindi',unavailable)
+    r=client.post(f"/api/cases/{c['id']}/speech",json={'text':'नमस्ते'})
+    assert r.status_code==503 and 'not installed' in r.json()['detail']
+
 def test_local_ocr_survives_cloud_failure(client,monkeypatch):
     from PIL import Image
     image=io.BytesIO();Image.new('RGB',(100,100),'white').save(image,format='PNG')

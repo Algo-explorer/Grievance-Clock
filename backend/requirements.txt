@@ -15,3 +15,4 @@ faster-whisper>=1.2,<2
 av>=11,<16
 rapidocr-onnxruntime>=1.4,<2
 pypdfium2>=5,<6
+piper-tts==1.8.0

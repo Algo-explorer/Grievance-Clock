@@ -284,29 +284,48 @@ def download_evidence(case_id: str,evidence_id: str,preview: bool=False,who=Depe
     return Response(store.read_evidence(ev['id']),media_type=ev['mime'],headers={'Content-Disposition':f'{"inline" if preview else "attachment"}; filename="evidence-{ev["id"]}{Path(ev["name"]).suffix}"'})
 
 @app.post('/api/cases/{case_id}/transcribe')
-def transcribe(case_id: str,file: UploadFile=File(...),who=Depends(owner)):
+def transcribe(case_id: str,file: UploadFile=File(...),language: str=Form('auto'),who=Depends(owner)):
     limited(who)
     c=store.get(who,case_id)
     mutable(c)
+    from faster_whisper.tokenizer import _LANGUAGE_CODES
+    language='hi' if language=='hi-Latn' else language
+    if language!='auto' and language not in _LANGUAGE_CODES:
+        raise HTTPException(422,'Choose a supported recording language or Automatic.')
+    spoken_language=None if language=='auto' else language
     raw=file.file.read(12*1024*1024+1)
     if not raw or len(raw)>12*1024*1024: raise HTTPException(413,'Audio must be under 12 MB.')
     suffix=Path(file.filename or 'voice.webm').suffix.lower()
     if suffix not in ('.webm','.wav','.mp3','.mp4','.m4a','.ogg','.flac'):
         raise HTTPException(422,'Unsupported audio format. Use WebM, WAV, MP3, MP4, M4A, OGG or FLAC.')
     if local_media.status()['local_voice']:
-        try: text=local_media.transcribe(raw,'hi' if c['language']=='hi-Latn' else c['language'])
+        try: text=local_media.transcribe(raw,spoken_language)
         except ValueError as exc: raise HTTPException(422,str(exc))
         except Exception: raise HTTPException(422,'Could not decode or transcribe this recording. Try again or upload a WAV/MP3 recording.')
         return {'text':text,'provider':'local_whisper','notice':'Transcribed locally. Review before sending. Audio was not stored.'}
     if ai.mode(c)!='live': raise HTTPException(503,'Local voice model is not installed. Run the local voice setup, or enable cloud AI sharing.')
     issue=provider.problem()
     if issue: raise HTTPException(503,issue['message']+' Voice model setup is needed for offline transcription.')
-    try: text=ai.transcribe(raw,'voice'+suffix,'hi' if c['language']=='hi-Latn' else c['language'])
+    try: text=ai.transcribe(raw,'voice'+suffix,spoken_language)
     except Exception as exc:
         issue=provider.failed(exc)
         raise HTTPException(503,issue['message']+' Install local voice to transcribe without cloud access.')
     if not text.strip(): raise HTTPException(422,'No clear speech was detected. Please record again.')
     return {'text':text,'provider':'openai','notice':'Review the transcript before sending. Audio was not stored.'}
+
+class SpeechRequest(BaseModel):
+    text: str = Field(min_length=1,max_length=4000)
+
+@app.post('/api/cases/{case_id}/speech')
+def speech(case_id: str, body: SpeechRequest,who=Depends(owner)):
+    limited(who)
+    store.get(who,case_id)
+    if not any('\u0900' <= char <= '\u097f' for char in body.text):
+        raise HTTPException(422,'Hindi read-aloud needs Hindi script. Use a matching browser voice for other languages.')
+    try: audio=local_media.synthesize_hindi(body.text)
+    except RuntimeError as exc: raise HTTPException(503,str(exc))
+    except Exception: raise HTTPException(503,'Hindi audio could not be generated. Please try again.')
+    return Response(audio,media_type='audio/wav',headers={'Cache-Control':'no-store'})
 
 @app.post('/api/cases/{case_id}/fraud-analysis')
 def fraud_analysis(case_id: str,who=Depends(owner)):
